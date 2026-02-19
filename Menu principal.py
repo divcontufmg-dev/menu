@@ -9,7 +9,7 @@ st.write("Bem-vindo! Selecione abaixo a automação que deseja utilizar:")
 # Criando botões grandes que levam para as outras páginas
 st.page_link("pages/Preparar planilha Siafi RMB.py", label="📊 1. VBA RMB", icon="▶️")
 st.page_link("pages/Preparar planilha Siafi Depreciação.py", label="🔧 2. VBA Depreciação", icon="▶️")
-st.page_link("pages/rmb.py", label="📝 3. Conciliador RMB x SIAFI", icon="▶️")
+st.page_link("pages/Conciliador RMB x SIAFI", label="📝 3. Conciliador RMB x SIAFI", icon="▶️")
 st.page_link("pages/Conciliador Depreciação x SIAFI.py", label="📁 4. Conciliador Depreciação x SIAFI", icon="▶️")
 
 st.divider()
