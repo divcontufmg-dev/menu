@@ -9,7 +9,7 @@ st.write("Bem-vindo! Selecione abaixo a automação que deseja utilizar:")
 # Criando botões grandes que levam para as outras páginas
 st.page_link("pages/1_Depreciacao.py", label="📊 1. Automação de Depreciação", icon="▶️")
 st.page_link("pages/2_Ferramenta_Dois.py", label="🔧 2. Nome da Ferramenta Dois", icon="▶️")
-st.page_link("pages/3_Ferramenta_Tres.py", label="📝 3. Nome da Ferramenta Três", icon="▶️")
+st.page_link("pages/rmb.py", label="📝 3. Conciliador RMB x SIAFI", icon="▶️")
 st.page_link("pages/4_Ferramenta_Quatro.py", label="📁 4. Nome da Ferramenta Quatro", icon="▶️")
 
 st.divider()
