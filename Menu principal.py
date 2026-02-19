@@ -10,7 +10,7 @@ st.write("Bem-vindo! Selecione abaixo a automação que deseja utilizar:")
 st.page_link("pages/Preparar planilha Siafi RMB.py", label="📊 1. VBA RMB", icon="▶️")
 st.page_link("pages/Preparar planilha Siafi Depreciação.py", label="🔧 2. VBA Depreciação", icon="▶️")
 st.page_link("pages/rmb.py", label="📝 3. Conciliador RMB x SIAFI", icon="▶️")
-st.page_link("pages/dep.py", label="📁 4. Conciliador Depreciação x SIAFI", icon="▶️")
+st.page_link("pages/Conciliador Depreciação x SIAFI.py", label="📁 4. Conciliador Depreciação x SIAFI", icon="▶️")
 
 st.divider()
 st.info("💡 **Dica:** Você também pode usar o menu lateral esquerdo para navegar entre as ferramentas e voltar para esta tela inicial a qualquer momento.")
