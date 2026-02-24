@@ -18,9 +18,9 @@ st.markdown("""
 with st.sidebar:
     st.markdown("### 🧭 Navegação")
     # Coloque aqui apenas as páginas que você quer que apareçam no menu lateral
-    st.page_link("pages/2.1_Conciliador_RMB_x_SIAFI.py", label="2. Conciliador RMB x SIAFI", icon="📝")
-    st.page_link("pages/4.1_Conciliador_Depreciação_x_SIAFI.py", label="4. Conciliador Depreciação", icon="📁")
-    st.page_link("pages/5_Conciliador_Almoxarifado_x_SIAFI.py", label="5. Conciliador Almoxarifado", icon="💼")
+    st.page_link("pages/2.1_Conciliador_RMB_x_SIAFI.py", label="1. Conciliador RMB x SIAFI", icon="📝")
+    st.page_link("pages/4.1_Conciliador_Depreciação_x_SIAFI.py", label="2. Conciliador Depreciação", icon="📁")
+    st.page_link("pages/5_Conciliador_Almoxarifado_x_SIAFI.py", label="3. Conciliador Almoxarifado", icon="💼")
 
 
 # ==========================================
