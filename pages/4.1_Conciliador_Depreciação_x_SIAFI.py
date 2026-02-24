@@ -7,6 +7,9 @@ import io
 import os
 import openpyxl
 
+# ==========================================
+# CONFIGURAÇÃO INICIAL
+# ==========================================
 # O sistema prepara a tela inicial para que você tenha a melhor visualização
 st.set_page_config(
     page_title="Conciliador de Depreciação",
@@ -14,16 +17,24 @@ st.set_page_config(
     layout="wide"
 )
 
-# Oculta elementos técnicos da plataforma para deixar a interface mais limpa para o usuário
+# Oculta elementos técnicos da plataforma e o menu lateral padrão para deixar a interface mais limpa
 hide_streamlit_style = """
             <style>
             #MainMenu {visibility: hidden;}
             footer {visibility: hidden;}
             header {visibility: hidden;}
+            [data-testid="stSidebarNav"] {display: none;}
             </style>
             """
 st.markdown(hide_streamlit_style, unsafe_allow_html=True)
 
+# Botão para retornar à tela inicial (Menu Principal)
+with st.sidebar:
+    st.page_link("Menu_principal.py", label="⬅️ Voltar ao Menu Inicial")
+
+# ==========================================
+# FUNÇÕES DE PROCESSAMENTO (BASTIDORES)
+# ==========================================
 # O sistema formata os valores para o padrão financeiro brasileiro (R$)
 def formatar_real(valor):
     sinal = "-" if valor < -0.001 else ""
@@ -138,7 +149,9 @@ class PDFRelatorio(FPDF):
         self.set_font('Helvetica', 'I', 8)
         self.cell(0, 10, f'Página {self.page_no()}', 0, 0, 'C')
 
-
+# ==========================================
+# INTERFACE DO USUÁRIO
+# ==========================================
 st.title("📊 Conciliador de Depreciação")
 
 # O sistema recebe o mês que você deseja conciliar para buscar a coluna correta nos documentos
@@ -163,6 +176,9 @@ uploaded_files = st.file_uploader(
     accept_multiple_files=True
 )
 
+# ==========================================
+# EXECUÇÃO DO SISTEMA
+# ==========================================
 if st.button("Gerar Relatório de Conciliação", type="primary"):
     if not uploaded_files:
         st.warning("⚠️ Por favor, insira seus arquivos para que possamos realizar a conciliação.")
