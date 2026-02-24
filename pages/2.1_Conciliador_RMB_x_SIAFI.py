@@ -16,19 +16,23 @@ from pytesseract import Output
 st.set_page_config(
     page_title="Conciliação Patrimonial: RMB x SIAFI",
     page_icon="📊",
-    layout="wide",
-    initial_sidebar_state="collapsed"
+    layout="wide"
 )
 
-# Ocultar marcas do Streamlit para um visual mais limpo
+# Ocultar marcas do Streamlit e o menu lateral automático para um visual mais limpo
 hide_streamlit_style = """
             <style>
             #MainMenu {visibility: hidden;}
             footer {visibility: hidden;}
             header {visibility: hidden;}
+            [data-testid="stSidebarNav"] {display: none;}
             </style>
             """
 st.markdown(hide_streamlit_style, unsafe_allow_html=True)
+
+# Botão para retornar à tela inicial (Menu Principal)
+with st.sidebar:
+    st.page_link("Menu_principal.py", label="⬅️ Voltar ao Menu Inicial")
 
 # ==========================================
 # FUNÇÕES DE PROCESSAMENTO (BASTIDORES)
@@ -93,22 +97,21 @@ class PDF_Report(FPDF):
 # INTERFACE DO USUÁRIO
 # ==========================================
 st.title("📊 Sistema de Conciliação: RMB x SIAFI")
-st.markdown("""
-Bem-vindo! Esta ferramenta automatiza a conferência entre os saldos do SIAFI e os relatórios do RMB.
-**Instruções:**
-1. Arraste para a área abaixo a sua **Planilha SIAFI** e todos os **Relatórios PDF (RMB)** correspondentes.
-2. Clique em "Gerar Relatório de Conciliação" e aguarde a análise.
-""")
-st.markdown("---")
+
+with st.expander("📘 GUIA DE USO (Clique para abrir)", expanded=False):
+    st.markdown("📌 **Orientações de Uso**")
+    st.markdown("""
+    1. Certifique-se de que o arquivo de configuração (`MATRIZ.xlsx`) está na mesma pasta.
+    2. Anexe a **Planilha SIAFI** e todos os **Relatórios PDF (RMB)** correspondentes na área abaixo.
+    3. Clique em "Gerar Relatório de Conciliação" e aguarde a análise.
+    """)
 
 # Área de Upload Unificada
 arquivos_enviados = st.file_uploader(
-    "📂 Arraste aqui a Planilha SIAFI (.xlsx) e os PDFs do RMB juntos", 
+    "📂 Arraste ou selecione a Planilha SIAFI (.xlsx) e os PDFs do RMB de uma só vez", 
     accept_multiple_files=True, 
     type=['xlsx', 'pdf']
 )
-
-st.markdown("---")
 
 # ==========================================
 # EXECUÇÃO DO SISTEMA
@@ -121,7 +124,7 @@ if st.button("🚀 Gerar Relatório de Conciliação", type="primary", use_conta
         st.stop()
         
     if not arquivos_enviados:
-        st.warning("⚠️ Por favor, insira os arquivos para iniciar a conciliação.")
+        st.warning("⚠️ Por favor, insira seus arquivos para que possamos realizar a conciliação.")
         st.stop()
 
     # Separa os arquivos enviados entre a planilha principal e os PDFs
@@ -139,10 +142,10 @@ if st.button("🚀 Gerar Relatório de Conciliação", type="primary", use_conta
 
     # Verificações de envio
     if not uploaded_siafi:
-        st.warning("⚠️ A Planilha SIAFI (.xlsx) não foi encontrada entre os arquivos enviados.")
+        st.error("❌ A Planilha SIAFI (.xlsx) não foi encontrada entre os arquivos enviados.")
         st.stop()
     if not uploaded_pdfs:
-        st.warning("⚠️ Nenhum relatório RMB (.pdf) foi encontrado entre os arquivos enviados.")
+        st.error("❌ Nenhum relatório RMB (.pdf) foi encontrado entre os arquivos enviados.")
         st.stop()
 
     progresso = st.progress(0)
@@ -354,7 +357,7 @@ if st.button("🚀 Gerar Relatório de Conciliação", type="primary", use_conta
             
             progresso.progress((idx + 1) / len(pares))
 
-        status_text.text("Concluído! O relatório final está pronto para download.")
+        status_text.success("Concluído! Verifique os resultados na tela e baixe seu relatório final.")
         progresso.empty()
         
         # Exibe os avisos apenas se houver algum
@@ -367,9 +370,9 @@ if st.button("🚀 Gerar Relatório de Conciliação", type="primary", use_conta
         try:
             pdf_bytes = bytes(pdf_out.output())
             st.download_button(
-                label="📥 BAIXAR RELATÓRIO CONSOLIDADO (.PDF)", 
+                label="📄 Fazer Download do Relatório Completo (PDF)", 
                 data=pdf_bytes, 
-                file_name="Relatorio_Conciliacao_Patrimonial.pdf", 
+                file_name="Relatorio_Conciliacao_Patrimonial_RMB.pdf", 
                 mime="application/pdf", 
                 type="primary", 
                 use_container_width=True
