@@ -101,9 +101,8 @@ st.title("📊 Sistema de Conciliação: RMB x SIAFI")
 with st.expander("📘 GUIA DE USO (Clique para abrir)", expanded=False):
     st.markdown("📌 **Orientações de Uso**")
     st.markdown("""
-    1. Certifique-se de que o arquivo de configuração (`MATRIZ.xlsx`) está na mesma pasta.
-    2. Anexe a **Planilha SIAFI** e todos os **Relatórios PDF (RMB)** correspondentes na área abaixo.
-    3. Clique em "Gerar Relatório de Conciliação" e aguarde a análise.
+    1. Anexe a **Planilha SIAFI** e todos os **Relatórios PDF (RMB)** correspondentes na área abaixo.
+    2. Clique em "Gerar Relatório de Conciliação" e aguarde a análise.
     """)
 
 # Área de Upload Unificada
