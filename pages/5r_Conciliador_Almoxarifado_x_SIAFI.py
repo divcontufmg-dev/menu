@@ -16,23 +16,27 @@ from pytesseract import Output
 st.set_page_config(
     page_title="Conciliador: Conta Corrente x Conta Contábil",
     page_icon="📊",
-    layout="wide",
-    initial_sidebar_state="collapsed"
+    layout="wide"
 )
 
+# Oculta marcas do Streamlit e o menu lateral automático para um visual mais limpo
 hide_streamlit_style = """
             <style>
             #MainMenu {visibility: hidden;}
             footer {visibility: hidden;}
             header {visibility: hidden;}
+            [data-testid="stSidebarNav"] {display: none;}
             </style>
             """
 st.markdown(hide_streamlit_style, unsafe_allow_html=True)
 
-# ==========================================
-# FUNÇÕES E CLASSES
-# ==========================================
+# Botão para retornar à tela inicial (Menu Principal)
+with st.sidebar:
+    st.page_link("Menu_principal.py", label="⬅️ Voltar ao Menu Inicial")
 
+# ==========================================
+# FUNÇÕES E CLASSES (BASTIDORES)
+# ==========================================
 def limpar_valor(v):
     if v is None or pd.isna(v): return 0.0
     if isinstance(v, (int, float)): return float(v)
@@ -51,26 +55,36 @@ class PDF_Report(FPDF):
         self.cell(0, 10, 'Relatório de Conferência: Conta Corrente x Conta Contábil', align='C', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
         self.ln(5)
     def footer(self):
-        self.set_y(-15); self.set_font('helvetica', 'I', 8)
+        self.set_y(-15)
+        self.set_font('helvetica', 'I', 8)
         self.cell(0, 10, f'Página {self.page_no()}', align='C')
 
 # ==========================================
-# INTERFACE
+# INTERFACE DO USUÁRIO
 # ==========================================
 st.title("📊 Conciliador por Abas: Conta Corrente x Conta Contábil")
-st.markdown("---")
 
-st.subheader("📂 Área de Arquivos")
-st.write("Faça o upload de **UMA planilha Excel (com várias abas)** e dos **arquivos PDF correspondentes**.")
+with st.expander("📘 GUIA DE USO (Clique para abrir)", expanded=False):
+    st.markdown("📌 **Orientações de Uso**")
+    st.markdown("""
+    1. Anexe **UMA planilha Excel (com várias abas)** e todos os **arquivos PDF correspondentes** de uma só vez na área abaixo.
+    2. Clique em "Iniciar Auditoria" e aguarde a análise.
+    """)
+
+# Área de Upload Unificada
 uploaded_files = st.file_uploader(
-    "Arraste a Planilha Única e os PDFs para esta área:", 
-    accept_multiple_files=True
+    "📂 Arraste a Planilha Única e os PDFs para esta área", 
+    accept_multiple_files=True,
+    type=['pdf', 'xlsx', 'xls']
 )
 
-if st.button("▶️ Iniciar Auditoria", use_container_width=True, type="primary"):
+# ==========================================
+# EXECUÇÃO DO SISTEMA
+# ==========================================
+if st.button("🚀 Iniciar Auditoria", use_container_width=True, type="primary"):
     
     if not uploaded_files:
-        st.warning("⚠️ Por favor, adicione os arquivos antes de processar.")
+        st.warning("⚠️ Por favor, insira seus arquivos para que possamos realizar a conciliação.")
     else:
         progresso = st.progress(0)
         status_text = st.empty()
@@ -302,7 +316,7 @@ if st.button("▶️ Iniciar Auditoria", use_container_width=True, type="primary
                 
                 progresso.progress((idx + 1) / len(pares))
 
-            status_text.text("Processamento concluído!")
+            status_text.success("Processamento concluído com sucesso!")
             progresso.empty()
             
             if logs:
@@ -311,6 +325,13 @@ if st.button("▶️ Iniciar Auditoria", use_container_width=True, type="primary
             
             try:
                 pdf_bytes = bytes(pdf_out.output())
-                st.download_button("BAIXAR RELATÓRIO DE CONCILIAÇÃO PDF", pdf_bytes, "RELATORIO_CONTA_CORRENTE_ABAS.pdf", "application/pdf", type="primary", use_container_width=True)
+                st.download_button(
+                    label="📄 BAIXAR RELATÓRIO DE CONCILIAÇÃO (.PDF)", 
+                    data=pdf_bytes, 
+                    file_name="RELATORIO_CONTA_CORRENTE_ABAS.pdf", 
+                    mime="application/pdf", 
+                    type="primary", 
+                    use_container_width=True
+                )
             except Exception as e:
                 st.error(f"Erro ao gerar o download: {e}")
