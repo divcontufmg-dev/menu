@@ -14,7 +14,7 @@ from pytesseract import Output
 # CONFIGURAÇÃO INICIAL
 # ==========================================
 st.set_page_config(
-    page_title="Conciliador: Conta Corrente x Conta Contábil",
+    page_title="Conciliador: Almoxarigado x SIAFI",
     page_icon="📊",
     layout="wide"
 )
@@ -62,18 +62,18 @@ class PDF_Report(FPDF):
 # ==========================================
 # INTERFACE DO USUÁRIO
 # ==========================================
-st.title("📊 Conciliador por Abas: Conta Corrente x Conta Contábil")
+st.title("📊 Conciliador: Almoxarifado x SIAFI")
 
 with st.expander("📘 GUIA DE USO (Clique para abrir)", expanded=False):
     st.markdown("📌 **Orientações de Uso**")
     st.markdown("""
-    1. Anexe **UMA planilha Excel (com várias abas)** e todos os **arquivos PDF correspondentes** de uma só vez na área abaixo.
-    2. Clique em "Iniciar Auditoria" e aguarde a análise.
+    1. Anexe **o relatório SIAFI em excel** e todos os **arquivos PDF correspondentes** de uma só vez na área abaixo. (O nome dos arquivos deverá ser o código da UG correspondente)
+    2. Clique em "Gerar relatório " e aguarde a análise.
     """)
 
 # Área de Upload Unificada
 uploaded_files = st.file_uploader(
-    "📂 Arraste a Planilha Única e os PDFs para esta área", 
+    "📂 Arraste a Planilha e os PDFs para esta área", 
     accept_multiple_files=True,
     type=['pdf', 'xlsx', 'xls']
 )
@@ -81,7 +81,7 @@ uploaded_files = st.file_uploader(
 # ==========================================
 # EXECUÇÃO DO SISTEMA
 # ==========================================
-if st.button("🚀 Iniciar Auditoria", use_container_width=True, type="primary"):
+if st.button("🚀 Gerar relatório", use_container_width=True, type="primary"):
     
     if not uploaded_files:
         st.warning("⚠️ Por favor, insira seus arquivos para que possamos realizar a conciliação.")
