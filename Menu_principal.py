@@ -37,4 +37,4 @@ st.page_link("pages/4.1_Conciliador_Depreciação_x_SIAFI.py", label="📁 2. Co
 st.page_link("pages/5_Conciliador_Almoxarifado_x_SIAFI.py", label="💼 3. Conciliador Almoxarifado x SIAFI", icon="▶️")
 
 st.divider()
-st.info("💡 **Dica:** Você também pode usar o menu lateral esquerdo para navegar entre as ferramentas e voltar para esta tela inicial a qualquer momento.")
+st.info("💡 **Dica:** Você também pode usar o menu lateral esquerdo para voltar a esse menu.")
