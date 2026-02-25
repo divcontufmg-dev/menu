@@ -10,7 +10,6 @@ import openpyxl
 # ==========================================
 # CONFIGURAÇÃO INICIAL
 # ==========================================
-# O sistema prepara a tela inicial para que você tenha a melhor visualização
 st.set_page_config(
     page_title="Conciliador de Depreciação",
     page_icon="📊",
@@ -28,14 +27,12 @@ hide_streamlit_style = """
             """
 st.markdown(hide_streamlit_style, unsafe_allow_html=True)
 
-# Botão para retornar à tela inicial (Menu Principal)
-with st.sidebar:
-    st.page_link("Menu_principal.py", label="⬅️ Voltar ao Menu Inicial")
+# Botão para retornar à tela inicial solto no topo da tela
+st.page_link("Menu_principal.py", label="⬅️ Voltar ao Menu Inicial")
 
 # ==========================================
 # FUNÇÕES DE PROCESSAMENTO (BASTIDORES)
 # ==========================================
-# O sistema formata os valores para o padrão financeiro brasileiro (R$)
 def formatar_real(valor):
     sinal = "-" if valor < -0.001 else ""
     return f"{sinal}{abs(valor):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
@@ -53,7 +50,6 @@ def formatar_moeda_pdf(valor_str):
     except:
         return 0.0
 
-# O sistema garante a leitura precisa dos valores positivos e negativos da sua planilha
 def converter_valor_excel(valor):
     if pd.isna(valor) or valor is None: return 0.0
     if isinstance(valor, (int, float)): return float(valor)
@@ -74,7 +70,6 @@ def extrair_id_unidade(texto):
     match = re.search(r"(\d+)", str(texto))
     return match.group(1) if match else None
 
-# O sistema varre os relatórios em busca das linhas contábeis que formam a sua movimentação
 def extrair_valor_mes(bloco_texto, nome_linha, idx_mes):
     nome_regex = nome_linha.replace("(", r"\(").replace(")", r"\)").replace(" ", r"\s+")
     nome_regex = nome_regex.replace("Ç", "[CÇ]").replace("Ã", "[AÃ]").replace("Ê", "[EÊ]").replace("Í", "[IÍ]")
@@ -91,7 +86,6 @@ def extrair_valor_mes(bloco_texto, nome_linha, idx_mes):
             return formatar_moeda_pdf(matches[idx_mes])
     return 0.0
 
-# O sistema calcula o valor líquido exato cruzando as entradas, saídas e a depreciação do seu relatório
 def processar_pdf(arquivo_obj, idx_mes):
     dados_pdf = {}
     texto_completo = ""
@@ -125,7 +119,6 @@ def processar_pdf(arquivo_obj, idx_mes):
             
     return dados_pdf
 
-# O sistema localiza internamente a matriz de cruzamento para relacionar as contas contábeis
 def carregar_matriz():
     caminho_matriz = "MATRIZ.xlsx"
     dicionario_matriz = {}
@@ -137,7 +130,6 @@ def carregar_matriz():
                 dicionario_matriz[str(row[0]).strip()] = str(row[1]).strip()
     return dicionario_matriz
 
-# O sistema gera o layout do documento final em PDF contendo o resultado da sua conciliação
 class PDFRelatorio(FPDF):
     def header(self):
         self.set_font('Helvetica', 'B', 12)
@@ -154,7 +146,6 @@ class PDFRelatorio(FPDF):
 # ==========================================
 st.title("📊 Conciliador de Depreciação")
 
-# O sistema recebe o mês que você deseja conciliar para buscar a coluna correta nos documentos
 meses_opcoes = ["JAN", "FEV", "MAR", "ABR", "MAI", "JUN", "JUL", "AGO", "SET", "OUT", "NOV", "DEZ"]
 mes_selecionado = st.selectbox("Selecione o Mês de Referência:", meses_opcoes)
 idx_mes = meses_opcoes.index(mes_selecionado)
@@ -169,7 +160,6 @@ with st.expander("📘 GUIA DE USO (Clique para abrir)", expanded=False):
     3. Clique em "Gerar Relatório".
     """)
 
-# O sistema consolida o recebimento de todos os seus documentos de uma única vez neste botão
 uploaded_files = st.file_uploader(
     "Arraste ou selecione a Planilha e os Relatórios de uma só vez", 
     type=['pdf', 'xlsx'], 
@@ -196,14 +186,12 @@ if st.button("Gerar Relatório de Conciliação", type="primary"):
             try:
                 dicionario_matriz = carregar_matriz()
 
-                # O sistema lê e armazena os valores de movimentação de todos os PDFs fornecidos
                 dados_pdfs_extraidos = {}
                 for f in pdfs:
                     uid = extrair_id_unidade(f.name)
                     if uid:
                         dados_pdfs_extraidos[uid] = processar_pdf(f, idx_mes)
 
-                # O sistema percorre sua planilha para agrupar os lançamentos de cada unidade gestora
                 wb_alvo = openpyxl.load_workbook(arquivo_alvo, data_only=True)
                 
                 pdf_out = PDFRelatorio()
@@ -258,7 +246,6 @@ if st.button("Gerar Relatório de Conciliação", type="primary"):
                                     d_excel[grupo]['saldo'] += val_saldo
                                     d_excel[grupo]['movimento'] += val_mov
 
-                    # O sistema coloca os valores do PDF e do Excel lado a lado para encontrar diferenças exatas
                     if uid in dados_pdfs_extraidos:
                         d_pdf = dados_pdfs_extraidos[uid]
                         
@@ -287,7 +274,6 @@ if st.button("Gerar Relatório de Conciliação", type="primary"):
                             if abs(dif_mov) > 0.00: 
                                 divergencias.append({'grupo': g, 'tipo': 'Mês Corrente', 'pdf': vp_mov, 'excel': ve_mov, 'diff': dif_mov})
 
-                        # O sistema desenha a página do relatório consolidado apontando os totais e as possíveis falhas
                         if pdf_out.get_y() > 240: pdf_out.add_page()
                         
                         pdf_out.set_font("helvetica", 'B', 10)
