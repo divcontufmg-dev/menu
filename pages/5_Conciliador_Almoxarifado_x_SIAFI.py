@@ -14,7 +14,7 @@ from pytesseract import Output
 # CONFIGURAÇÃO INICIAL
 # ==========================================
 st.set_page_config(
-    page_title="Conciliador: Almoxarigado x SIAFI",
+    page_title="Conciliador: Almoxarifado x SIAFI",
     page_icon="📊",
     layout="wide"
 )
@@ -30,9 +30,8 @@ hide_streamlit_style = """
             """
 st.markdown(hide_streamlit_style, unsafe_allow_html=True)
 
-# Botão para retornar à tela inicial (Menu Principal)
-with st.sidebar:
-    st.page_link("Menu_principal.py", label="⬅️ Voltar ao Menu Inicial")
+# Botão para retornar à tela inicial solto no topo da tela
+st.page_link("Menu_principal.py", label="⬅️ Voltar ao Menu Inicial")
 
 # ==========================================
 # FUNÇÕES E CLASSES (BASTIDORES)
@@ -52,7 +51,7 @@ def formatar_real(valor):
 class PDF_Report(FPDF):
     def header(self):
         self.set_font('helvetica', 'B', 12)
-        self.cell(0, 10, 'Relatório de Conferência: Conta Corrente x Conta Contábil', align='C', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        self.cell(0, 10, 'Relatório de Conferência: Almoxarifado x SIAFI', align='C', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
         self.ln(5)
     def footer(self):
         self.set_y(-15)
@@ -68,7 +67,7 @@ with st.expander("📘 GUIA DE USO (Clique para abrir)", expanded=False):
     st.markdown("📌 **Orientações de Uso**")
     st.markdown("""
     1. Anexe **o relatório SIAFI em excel** e todos os **arquivos PDF correspondentes** de uma só vez na área abaixo. (O nome dos arquivos deverá ser o código da UG correspondente)
-    2. Clique em "Gerar relatório " e aguarde a análise.
+    2. Clique em "Gerar relatório" e aguarde a análise.
     """)
 
 # Área de Upload Unificada
@@ -328,7 +327,7 @@ if st.button("🚀 Gerar relatório", use_container_width=True, type="primary"):
                 st.download_button(
                     label="📄 BAIXAR RELATÓRIO DE CONCILIAÇÃO (.PDF)", 
                     data=pdf_bytes, 
-                    file_name="RELATORIO_CONTA_CORRENTE_ABAS.pdf", 
+                    file_name="RELATORIO_ALMOXARIFADO_SIAFI.pdf", 
                     mime="application/pdf", 
                     type="primary", 
                     use_container_width=True
