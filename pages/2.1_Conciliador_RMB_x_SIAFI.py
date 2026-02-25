@@ -30,9 +30,8 @@ hide_streamlit_style = """
             """
 st.markdown(hide_streamlit_style, unsafe_allow_html=True)
 
-# Botão para retornar à tela inicial (Menu Principal)
-with st.sidebar:
-    st.page_link("Menu_principal.py", label="⬅️ Voltar ao Menu Inicial")
+# Botão para retornar à tela inicial solto no topo da tela
+st.page_link("Menu_principal.py", label="⬅️ Voltar ao Menu Inicial")
 
 # ==========================================
 # FUNÇÕES DE PROCESSAMENTO (BASTIDORES)
