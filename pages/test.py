@@ -41,6 +41,7 @@ st.page_link("Menu_principal.py", label="⬅️ Voltar ao Menu Inicial")
 # ==========================================
 def formatar_real(valor):
     sinal = "-" if valor < -0.001 else ""
+    # Transforma 1234.56 em 1.234,56
     return f"{sinal}{abs(valor):,.2f}".replace(',', '_').replace('.', ',').replace('_', '.')
 
 def limpar_valor_excel(v):
@@ -144,7 +145,7 @@ def extrair_valor_pdf(pdf_bytes, texto_busca, texto_abrev=None, is_dep=False):
 class PDF_Report(FPDF):
     def header(self):
         self.set_font('helvetica', 'B', 12)
-        self.cell(0, 10, 'Relatório de Conferência: Acervo Bibliográfico x Pergamum', align='C', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        self.cell(0, 10, 'Relatório de Conferência Biblioteca', align='C', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
         self.ln(5)
     def footer(self):
         self.set_y(-15)
@@ -161,7 +162,10 @@ with st.expander("📘 GUIA DE USO (Clique para abrir)", expanded=False):
     st.markdown("""
     1. Selecione o **Mês** e o **Ano** exatos que deseja conciliar.
     2. Anexe a **Planilha Excel** e os **arquivos PDF**.
-    3. O sistema somará tudo. **Poderá corrigir valores divergentes. As edições serão registadas no PDF para auditoria!**
+    3. **Guia de Nomenclatura dos Relatórios:**
+       - **Acervo:** Número da UG (ex: `153289.pdf`). Se houver mais de um, use letras ou números adicionais no final (ex: `153289a.pdf`, `153289a2.pdf`).
+       - **Depreciação:** Número da UG com a letra 'd' no final (ex: `153289d.pdf`, `153289d2.pdf`).
+    4. O sistema somará tudo. **Poderá corrigir valores divergentes. As edições serão registadas no PDF!**
     """)
 
 col_mes, col_ano = st.columns(2)
@@ -181,7 +185,7 @@ texto_abrev_acervo = meses_abrev[idx_mes]
 texto_busca_dep = f"{mes_num}/{ano_selecionado}" 
 
 uploaded_files = st.file_uploader(
-    "📂 Arraste a Planilha do Tesouro e os PDFs do Pergamum para esta área", 
+    "📂 Arraste a Planilha e os Relatórios para esta área", 
     accept_multiple_files=True,
     type=['pdf', 'xlsx', 'xls', 'csv']
 )
@@ -229,8 +233,8 @@ if st.button("🚀 Iniciar Conciliação", use_container_width=True, type="prima
                         'ex_dep': abs(saldo_dep), 
                         'pdf_acervo': 0.0,
                         'pdf_dep': 0.0,
-                        'original_pdf_acervo': 0.0, # NOVO: Memória Fotográfica para Auditoria
-                        'original_pdf_dep': 0.0,    # NOVO: Memória Fotográfica para Auditoria
+                        'original_pdf_acervo': 0.0, 
+                        'original_pdf_dep': 0.0,    
                         'arquivos_acervo_somados': 0,
                         'arquivos_dep_somados': 0,
                         'detalhes_acervo': {}, 
@@ -333,7 +337,7 @@ if st.session_state.get('dados_processados'):
         total_ex_dep += info['ex_dep']
         total_pdf_dep += info['pdf_dep']
 
-        # VERIFICA SE HOUVE FRAUDE / ALTERAÇÃO MANUAL
+        # VERIFICA SE HOUVE EDIÇÃO MANUAL
         editado_acervo = abs(info['pdf_acervo'] - info['original_pdf_acervo']) > 0.01
         editado_dep = abs(info['pdf_dep'] - info['original_pdf_dep']) > 0.01
 
@@ -348,19 +352,25 @@ if st.session_state.get('dados_processados'):
             elif info['erro_original_acervo'] or info['erro_original_dep']:
                 titulo = f"✅ UG {ug}: Corrigido Manualmente"
             else:
-                titulo = f"🔍 Detalhes da UG {ug} (Ficheiros Somados)"
+                titulo = f"🔍 Detalhes da UG {ug} (Relatórios Somados)"
                 
             with st.expander(titulo, expanded=tem_erro_atual):
                 df_view = pd.DataFrame([
-                    {"Conta": "Acervo", "PDF": info['pdf_acervo'], "Excel": info['ex_acervo'], "Diferença": dif_acervo_final},
-                    {"Conta": "Depreciação", "PDF": info['pdf_dep'], "Excel": info['ex_dep'], "Diferença": dif_dep_final}
+                    {"Conta": "Acervo", "Saldo relatório": info['pdf_acervo'], "Saldo SIAFI": info['ex_acervo'], "Diferença": dif_acervo_final},
+                    {"Conta": "Depreciação", "Saldo relatório": info['pdf_dep'], "Saldo SIAFI": info['ex_dep'], "Diferença": dif_dep_final}
                 ])
-                st.dataframe(df_view.style.format({"PDF": "R$ {:,.2f}", "Excel": "R$ {:,.2f}", "Diferença": "R$ {:,.2f}"}), use_container_width=True)
+                
+                # Formatador para o Dataframe do Streamlit usar . e , corretamente
+                st.dataframe(df_view.style.format({
+                    "Saldo relatório": lambda x: f"R$ {formatar_real(x)}", 
+                    "Saldo SIAFI": lambda x: f"R$ {formatar_real(x)}", 
+                    "Diferença": lambda x: f"R$ {formatar_real(x)}"
+                }), use_container_width=True)
                 
                 # EDIÇÃO CIRÚRGICA
                 if info['erro_original_acervo'] or info['erro_original_dep']:
                     st.markdown("---")
-                    st.markdown("**✏️ Correção Direta por Ficheiro:**")
+                    st.markdown("**✏️ Correção Direta por Relatório:**")
                     
                     if info['erro_original_acervo']:
                         st.markdown("**🔹 Acervo Bibliográfico**")
@@ -368,9 +378,9 @@ if st.session_state.get('dados_processados'):
                             cols = st.columns(2)
                             for idx, (arq, val) in enumerate(info['detalhes_acervo'].items()):
                                 with cols[idx % 2]:
-                                    st.number_input(f"Ficheiro: {arq}", value=float(val), step=100.0, key=f"edit_ac_{ug}_{arq}")
+                                    st.number_input(f"Relatório: {arq}", value=float(val), step=100.0, key=f"edit_ac_{ug}_{arq}")
                         else:
-                            st.number_input(f"Valor Total (PDF Ausente)", value=float(info['pdf_acervo']), step=100.0, key=f"edit_ac_{ug}_total")
+                            st.number_input(f"Valor Total (Relatório Ausente)", value=float(info['pdf_acervo']), step=100.0, key=f"edit_ac_{ug}_total")
 
                     if info['erro_original_dep']:
                         st.markdown("**🔸 Depreciação Acumulada**")
@@ -378,12 +388,12 @@ if st.session_state.get('dados_processados'):
                             cols = st.columns(2)
                             for idx, (arq, val) in enumerate(info['detalhes_dep'].items()):
                                 with cols[idx % 2]:
-                                    st.number_input(f"Ficheiro: {arq}", value=float(val), step=100.0, key=f"edit_dp_{ug}_{arq}")
+                                    st.number_input(f"Relatório: {arq}", value=float(val), step=100.0, key=f"edit_dp_{ug}_{arq}")
                         else:
-                            st.number_input(f"Valor Total (PDF Ausente)", value=float(info['pdf_dep']), step=100.0, key=f"edit_dp_{ug}_total")
+                            st.number_input(f"Valor Total (Relatório Ausente)", value=float(info['pdf_dep']), step=100.0, key=f"edit_dp_{ug}_total")
 
         # ==========================================
-        # ESCRITA NO PDF FINAL (COM RASTREABILIDADE)
+        # ESCRITA NO PDF FINAL
         # ==========================================
         texto_ug = f"Unidade Gestora: {ug} - {info['nome'][:50]}"
         avisos_soma = []
@@ -398,13 +408,12 @@ if st.session_state.get('dados_processados'):
         pdf_out.set_font("helvetica", 'B', 8)
         pdf_out.set_fill_color(220, 230, 241)
         pdf_out.cell(46, 7, "Conta", 1, fill=True)
-        pdf_out.cell(48, 7, "Saldo PDF (Pergamum)", 1, fill=True, align='C')
-        pdf_out.cell(48, 7, "Saldo Excel (SIAFI)", 1, fill=True, align='C')
+        pdf_out.cell(48, 7, "Saldo relatório", 1, fill=True, align='C') # Nova nomenclatura
+        pdf_out.cell(48, 7, "Saldo SIAFI", 1, fill=True, align='C')      # Nova nomenclatura
         pdf_out.cell(48, 7, "Diferença", 1, fill=True, align='C', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
         
         pdf_out.set_font("helvetica", '', 8)
         
-        # TEXTOS COM ASTERISCO SE EDITADO
         str_pdf_acervo = f"R$ {formatar_real(info['pdf_acervo'])}" + (" *" if editado_acervo else "")
         str_pdf_dep = f"R$ {formatar_real(info['pdf_dep'])}" + (" *" if editado_dep else "")
 
@@ -424,14 +433,14 @@ if st.session_state.get('dados_processados'):
         pdf_out.cell(48, 7, f"R$ {formatar_real(dif_dep_final)}", 1, align='R', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
         pdf_out.set_text_color(0, 0, 0)
         
-        # LOG DE AUDITORIA NO PDF
+        # LOG DE ALERTA NO PDF
         if editado_acervo or editado_dep:
             pdf_out.set_font("helvetica", 'I', 7)
-            pdf_out.set_text_color(180, 0, 0) # Cor vermelha para alertar fraude/edição
+            pdf_out.set_text_color(180, 0, 0) 
             if editado_acervo:
-                pdf_out.cell(0, 5, f"* AUDITORIA: O valor do Acervo foi alterado manualmente pelo utilizador. (Valor original lido do PDF: R$ {formatar_real(info['original_pdf_acervo'])})", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+                pdf_out.cell(0, 5, f"* ALERTA: O valor do Acervo foi alterado manualmente pelo utilizador. (Valor original lido do PDF: R$ {formatar_real(info['original_pdf_acervo'])})", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
             if editado_dep:
-                pdf_out.cell(0, 5, f"* AUDITORIA: O valor da Depreciação foi alterado manualmente pelo utilizador. (Valor original lido do PDF: R$ {formatar_real(info['original_pdf_dep'])})", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+                pdf_out.cell(0, 5, f"* ALERTA: O valor da Depreciação foi alterado manualmente pelo utilizador. (Valor original lido do PDF: R$ {formatar_real(info['original_pdf_dep'])})", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
             pdf_out.set_text_color(0, 0, 0)
         
         pdf_out.ln(5)
@@ -442,17 +451,17 @@ if st.session_state.get('dados_processados'):
     
     st.markdown("### Resumo Geral da Conciliação (Atualizado em tempo real)")
     c1, c2, c3 = st.columns(3)
-    c1.metric("Diferença Total (Acervo)", f"R$ {dif_total_acervo:,.2f}", delta_color="inverse" if abs(dif_total_acervo) > 0.05 else "normal")
-    c2.metric("Diferença Total (Depreciação)", f"R$ {dif_total_dep:,.2f}", delta_color="inverse" if abs(dif_total_dep) > 0.05 else "normal")
+    c1.metric("Diferença Total (Acervo)", f"R$ {formatar_real(dif_total_acervo)}", delta_color="inverse" if abs(dif_total_acervo) > 0.05 else "normal")
+    c2.metric("Diferença Total (Depreciação)", f"R$ {formatar_real(dif_total_dep)}", delta_color="inverse" if abs(dif_total_dep) > 0.05 else "normal")
     
     if st.session_state.logs:
-        with st.expander("⚠️ Avisos de Ficheiros Ausentes", expanded=False):
+        with st.expander("⚠️ Avisos de Relatórios Ausentes", expanded=False):
             for log in st.session_state.logs: st.write(log)
     
     try:
         pdf_bytes = bytes(pdf_out.output())
         st.download_button(
-            label="📄 BAIXAR RELATÓRIO FINAL COM AUDITORIA (.PDF)", 
+            label="📄 BAIXAR RELATÓRIO FINAL (.PDF)", 
             data=pdf_bytes, 
             file_name=f"RELATORIO_ACERVO_BIBLIOGRAFICO_{mes_selecionado}_{ano_selecionado}.pdf", 
             mime="application/pdf", 
