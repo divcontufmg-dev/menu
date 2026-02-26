@@ -37,7 +37,6 @@ def formatar_real(valor):
     sinal = "-" if valor < -0.001 else ""
     return f"{sinal}{abs(valor):,.2f}".replace(',', '_').replace('.', ',').replace('_', '.')
 
-# FUNÇÃO EXCLUSIVA PARA O EXCEL
 def limpar_valor_excel(v):
     if pd.isna(v) or v is None: return 0.0
     if isinstance(v, (int, float)): return float(v)
@@ -60,7 +59,6 @@ def limpar_valor_excel(v):
     except:
         return 0.0
 
-# FUNÇÃO EXCLUSIVA PARA O PDF (Filtro Estrito de Dinheiro)
 def limpar_valor_pdf(v):
     # Tira letras, mantendo só números, pontos e vírgulas (e limpa pontuação no final)
     v = re.sub(r'[^\d\.,]', '', str(v)).rstrip('.,')
@@ -80,7 +78,6 @@ def limpar_valor_pdf(v):
     # Se não tiver centavos (ex: 2025, 31.988), retorna 0 e o sistema ignora
     return 0.0
 
-# MOTOR DE EXTRAÇÃO BLINDADO
 def extrair_valor_pdf(pdf_bytes, texto_busca, texto_abrev=None, is_dep=False):
     texto_completo = ""
     try:
@@ -102,7 +99,6 @@ def extrair_valor_pdf(pdf_bytes, texto_busca, texto_abrev=None, is_dep=False):
         condicao_total = False
         
         if not is_dep:
-            # ACERVO: Busca inteligente pelo Mês
             padrao_mes = rf'^[\d\s\W]*({texto_busca.upper()}'
             if texto_abrev:
                 padrao_mes += rf'|{texto_abrev.upper()}'
@@ -113,7 +109,6 @@ def extrair_valor_pdf(pdf_bytes, texto_busca, texto_abrev=None, is_dep=False):
             elif encontrou_mes and re.match(r'^[\d\s\W]*TOTAL\b', line_clean.upper()):
                 condicao_total = True
         else:
-            # DEPRECIAÇÃO: Busca estrita pela data (ex: 01/2026)
             if line_clean.upper().startswith(texto_busca.upper()):
                 condicao_mes = True
                 
@@ -123,12 +118,10 @@ def extrair_valor_pdf(pdf_bytes, texto_busca, texto_abrev=None, is_dep=False):
                 
             bloco_texto = line_clean
             
-            # Reconstrói a tabela lendo as próximas linhas
             for j in range(i + 1, min(i + 30, len(linhas))):
                 proxima = linhas[j].strip().replace('"', '')
                 if not proxima: continue
                 
-                # Critério de parada de leitura
                 if not is_dep:
                     if re.match(r'^(Janeiro|Fevereiro|Março|Abril|Maio|Junho|Julho|Agosto|Setembro|Outubro|Novembro|Dezembro|Jan\.?|Fev\.?|Mar\.?|Abr\.?|Mai\.?|Jun\.?|Jul\.?|Ago\.?|Set\.?|Out\.?|Nov\.?|Dez\.?|TOTAL|Pag\.|Página|Pergamum|Sistema|Emissão|Data)', proxima, re.IGNORECASE):
                         break
@@ -138,13 +131,9 @@ def extrair_valor_pdf(pdf_bytes, texto_busca, texto_abrev=None, is_dep=False):
                         
                 bloco_texto += " " + proxima
                 
-            # CORREÇÃO DE ESPAÇOS MILHARES (ex: "1.205 936,50")
             bloco_texto = re.sub(r'(\.\d{3})\s+(?=\d{3}[.,]\d{2}(?!\d))', r'\1', bloco_texto)
-            
-            # Extrai todos os blocos que contenham dígitos
             matches = [m for m in re.findall(r'[\d\.,]+', bloco_texto) if any(c.isdigit() for c in m)]
             
-            # FILTRO MÁGICO: Só aceita se for estritamente um valor financeiro (ignora anos e quantidades)
             for m in reversed(matches):
                 v_clean = re.sub(r'[^\d\.,]', '', m).rstrip('.,')
                 if len(v_clean) >= 3 and v_clean[-3] in ['.', ',']:
@@ -152,16 +141,12 @@ def extrair_valor_pdf(pdf_bytes, texto_busca, texto_abrev=None, is_dep=False):
                     valores_encontrados.append(valor_real)
                     break 
                     
-    # LÓGICA DE DECISÃO FINAL
     if not valores_encontrados:
         return 0.0
         
     if is_dep:
-        # Na Depreciação, é sempre o último valor do bloco do mês
         return valores_encontrados[-1]
     else:
-        # No Acervo, pode ter achado saldo no Mês e no TOTAL. 
-        # Como o Saldo Acumulado Histórico é sempre muito superior à movimentação do mês, o 'max' acha o saldo perfeito garantido.
         return max(valores_encontrados)
 
 class PDF_Report(FPDF):
@@ -189,7 +174,6 @@ with st.expander("📘 GUIA DE USO (Clique para abrir)", expanded=False):
     4. O sistema somará todos os relatórios da mesma categoria automaticamente. Clique em "Iniciar Conciliação".
     """)
 
-# Seleção de Data
 col_mes, col_ano = st.columns(2)
 meses = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"]
 meses_abrev = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"]
@@ -206,7 +190,6 @@ texto_busca_acervo = mes_selecionado
 texto_abrev_acervo = meses_abrev[idx_mes]      
 texto_busca_dep = f"{mes_num}/{ano_selecionado}" 
 
-# Área de Upload Unificada
 uploaded_files = st.file_uploader(
     "📂 Arraste a Planilha do Tesouro e os PDFs do Pergamum para esta área", 
     accept_multiple_files=True,
@@ -260,7 +243,9 @@ if st.button("🚀 Iniciar Conciliação", use_container_width=True, type="prima
                         'achou_pdf_acervo': False,
                         'achou_pdf_dep': False,
                         'arquivos_acervo_somados': 0,
-                        'arquivos_dep_somados': 0
+                        'arquivos_dep_somados': 0,
+                        'detalhes_acervo': {}, # Armazena o Raio-X dos Acervos
+                        'detalhes_dep': {}     # Armazena o Raio-X das Depreciações
                     }
         except Exception as e:
             st.error(f"❌ Erro ao ler a estrutura da planilha: {e}")
@@ -290,6 +275,7 @@ if st.button("🚀 Iniciar Conciliação", use_container_width=True, type="prima
                         is_dep=False
                     )
                     info['pdf_acervo'] += valor_extraido
+                    info['detalhes_acervo'][nome_arquivo] = valor_extraido # Registo individual
             
             if achou_algum_acervo:
                 info['achou_pdf_acervo'] = True
@@ -312,6 +298,7 @@ if st.button("🚀 Iniciar Conciliação", use_container_width=True, type="prima
                         is_dep=True
                     )
                     info['pdf_dep'] += valor_extraido
+                    info['detalhes_dep'][nome_arquivo] = valor_extraido # Registo individual
             
             if achou_algum_dep:
                 info['achou_pdf_dep'] = True
@@ -381,14 +368,32 @@ if st.button("🚀 Iniciar Conciliação", use_container_width=True, type="prima
             
             pdf_out.ln(5)
             
-            if tem_erro:
-                aviso_extra = f" (⚠️ {' e '.join(avisos_soma)} somados)" if avisos_soma else ""
-                with st.expander(f"⚠️ UG {ug}: Divergências Encontradas {aviso_extra}", expanded=True):
+            mostrar_expander = tem_erro or info['arquivos_acervo_somados'] > 1 or info['arquivos_dep_somados'] > 1
+            
+            if mostrar_expander:
+                titulo_expander = f"🔍 Detalhes da UG {ug}"
+                if tem_erro:
+                    titulo_expander = f"⚠️ UG {ug}: Divergências Encontradas"
+                if avisos_soma:
+                    titulo_expander += f" (Múltiplos ficheiros somados)"
+                    
+                with st.expander(titulo_expander, expanded=tem_erro):
                     df_view = pd.DataFrame([
                         {"Conta": "Acervo Bibliográfico", "PDF": info['pdf_acervo'], "Excel": info['ex_acervo'], "Diferença": dif_acervo},
                         {"Conta": "Depreciação Acumulada", "PDF": info['pdf_dep'], "Excel": info['ex_dep'], "Diferença": dif_dep}
                     ])
                     st.dataframe(df_view.style.format({"PDF": "R$ {:,.2f}", "Excel": "R$ {:,.2f}", "Diferença": "R$ {:,.2f}"}))
+                    
+                    # RAIO-X: Mostra a decomposição dos valores lidos se houver mais de um ficheiro
+                    if info['arquivos_acervo_somados'] > 1:
+                        st.markdown("**📦 Valores extraídos por PDF (Acervo):**")
+                        for arq, val in info['detalhes_acervo'].items():
+                            st.write(f"- `{arq}`: R$ {formatar_real(val)}")
+                            
+                    if info['arquivos_dep_somados'] > 1:
+                        st.markdown("**📉 Valores extraídos por PDF (Depreciação):**")
+                        for arq, val in info['detalhes_dep'].items():
+                            st.write(f"- `{arq}`: R$ {formatar_real(val)}")
 
         dif_total_acervo = total_pdf_acervo - total_ex_acervo
         dif_total_dep = total_pdf_dep - total_ex_dep
