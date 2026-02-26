@@ -76,7 +76,7 @@ def limpar_valor_pdf(v):
     else:
         return float(v.replace('.', '').replace(',', '.'))
 
-# MOTOR DE EXTRAÇÃO CIRÚRGICO
+# MOTOR DE EXTRAÇÃO CIRÚRGICO - AGORA COM VARREDURA TOTAL
 def extrair_valor_pdf(pdf_bytes, texto_busca, texto_abrev=None, is_dep=False):
     texto_completo = ""
     try:
@@ -87,6 +87,8 @@ def extrair_valor_pdf(pdf_bytes, texto_busca, texto_abrev=None, is_dep=False):
         pass
     
     linhas = texto_completo.split('\n')
+    valor_final = 0.0
+    
     for i, line in enumerate(linhas):
         line_clean = line.strip().replace('"', '') 
         if not line_clean: continue
@@ -98,32 +100,31 @@ def extrair_valor_pdf(pdf_bytes, texto_busca, texto_abrev=None, is_dep=False):
             bloco_texto = line_clean
             
             # Reconstrói a tabela caso o PDF tenha vindo quebrado em várias linhas
-            for j in range(i + 1, min(i + 50, len(linhas))):
+            for j in range(i + 1, min(i + 30, len(linhas))):
                 proxima = linhas[j].strip().replace('"', '')
                 if not proxima: continue
                 
-                # Critério de parada de leitura
+                # Critério de parada de leitura (Cobre meses, rodapé, paginação e sistema)
                 if not is_dep:
-                    if re.match(r'^(Janeiro|Fevereiro|Março|Abril|Maio|Junho|Julho|Agosto|Setembro|Outubro|Novembro|Dezembro|Jan\.?|Fev\.?|Mar\.?|Abr\.?|Mai\.?|Jun\.?|Jul\.?|Ago\.?|Set\.?|Out\.?|Nov\.?|Dez\.?|TOTAL)', proxima, re.IGNORECASE):
+                    if re.match(r'^(Janeiro|Fevereiro|Março|Abril|Maio|Junho|Julho|Agosto|Setembro|Outubro|Novembro|Dezembro|Jan\.?|Fev\.?|Mar\.?|Abr\.?|Mai\.?|Jun\.?|Jul\.?|Ago\.?|Set\.?|Out\.?|Nov\.?|Dez\.?|TOTAL|Pag\.|Página|Pergamum|Sistema|Emissão|Data)', proxima, re.IGNORECASE):
                         break
                 else:
-                    if re.match(r'^(\d{2}/\d{4}|TOTAL)', proxima, re.IGNORECASE):
+                    if re.match(r'^(\d{2}/\d{4}|TOTAL|Pag\.|Página|Pergamum|Sistema|Emissão|Data)', proxima, re.IGNORECASE):
                         break
                         
                 bloco_texto += " " + proxima
                 
             # CORREÇÃO CIRÚRGICA DE ESPAÇOS MILHARES
-            # Só remove o espaço se: 
-            # 1. For precedido por Ponto e 3 dígitos (ex: .205)
-            # 2. For seguido de 3 dígitos, vírgula e 2 dígitos (ex: 936,50)
-            # Isso conserta o "1.205 936,50" mas não afeta o "5.915.86 752.327,96"
             bloco_texto = re.sub(r'(\.\d{3})\s+(?=\d{3}[.,]\d{2}(?!\d))', r'\1', bloco_texto)
             
             matches = re.findall(r'[\d\.,]+', bloco_texto)
             if len(matches) >= 1:
-                return limpar_valor_pdf(matches[-1]) 
+                novo_valor = limpar_valor_pdf(matches[-1])
+                # Grava o valor apenas se for válido. Como varre até o fim, pega a última linha de TOTAL (o Saldo Final real)
+                if novo_valor != 0.0 or valor_final == 0.0:
+                    valor_final = novo_valor 
                 
-    return 0.0
+    return valor_final
 
 class PDF_Report(FPDF):
     def header(self):
@@ -153,7 +154,6 @@ with st.expander("📘 GUIA DE USO (Clique para abrir)", expanded=False):
 # Seleção de Data
 col_mes, col_ano = st.columns(2)
 meses = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"]
-meses_abrev = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"]
 
 with col_mes:
     mes_selecionado = st.selectbox("Selecione o Mês:", meses)
@@ -163,8 +163,9 @@ with col_ano:
 idx_mes = meses.index(mes_selecionado)
 mes_num = f"{idx_mes + 1:02d}"
 
-texto_busca_acervo = mes_selecionado           
-texto_abrev_acervo = meses_abrev[idx_mes]      
+# ALTERAÇÃO DE LÓGICA: O Acervo agora caça o TOTAL Final, a Depreciação caça o Mês/Ano
+texto_busca_acervo = "TOTAL"           
+texto_abrev_acervo = None      
 texto_busca_dep = f"{mes_num}/{ano_selecionado}" 
 
 # Área de Upload Unificada
