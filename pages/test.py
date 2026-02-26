@@ -37,7 +37,7 @@ def formatar_real(valor):
     sinal = "-" if valor < -0.001 else ""
     return f"{sinal}{abs(valor):,.2f}".replace(',', '_').replace('.', ',').replace('_', '.')
 
-# FUNÇÃO EXCLUSIVA PARA O EXCEL (Preserva o valor original se já for número)
+# FUNÇÃO EXCLUSIVA PARA O EXCEL
 def limpar_valor_excel(v):
     if pd.isna(v) or v is None: return 0.0
     if isinstance(v, (int, float)): return float(v)
@@ -60,7 +60,7 @@ def limpar_valor_excel(v):
     except:
         return 0.0
 
-# FUNÇÃO EXCLUSIVA PARA O PDF (Trata a bagunça dos pontos do Pergamum)
+# FUNÇÃO EXCLUSIVA PARA O PDF
 def limpar_valor_pdf(v):
     v = re.sub(r'[^\d\.,]', '', str(v))
     if not v: return 0.0
@@ -76,25 +76,53 @@ def limpar_valor_pdf(v):
     else:
         return float(v.replace('.', '').replace(',', '.'))
 
+# MOTOR DE EXTRAÇÃO RECONSTRUÍDO (Leitura por Blocos)
 def extrair_valor_pdf(pdf_bytes, texto_busca, texto_abrev=None, is_dep=False):
     texto_completo = ""
     try:
         with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
             for page in pdf.pages:
                 texto_completo += page.extract_text() + "\n"
-                
-        for line in texto_completo.split('\n'):
-            line = line.strip().replace('"', '') 
-            
-            condicao_extenso = line.upper().startswith(texto_busca.upper())
-            condicao_abrev = texto_abrev and line.upper().startswith(texto_abrev.upper())
-            
-            if condicao_extenso or condicao_abrev:
-                matches = re.findall(r'[\d\.,]+', line)
-                if len(matches) >= 2:
-                    return limpar_valor_pdf(matches[-1]) # Usa o limpador de PDF
     except Exception:
         pass
+    
+    linhas = texto_completo.split('\n')
+    for i, line in enumerate(linhas):
+        line_clean = line.strip().replace('"', '') 
+        if not line_clean: continue
+        
+        condicao_extenso = line_clean.upper().startswith(texto_busca.upper())
+        condicao_abrev = texto_abrev and line_clean.upper().startswith(texto_abrev.upper())
+        
+        # Quando encontra a linha do mês/data
+        if condicao_extenso or condicao_abrev:
+            bloco_texto = line_clean
+            
+            # Vai varrer as próximas 50 linhas para reconstruir a tabela "partida"
+            for j in range(i + 1, min(i + 50, len(linhas))):
+                proxima = linhas[j].strip().replace('"', '')
+                if not proxima: continue
+                
+                # Critério de parada: bateu de frente com a linha do mês seguinte ou final
+                if not is_dep:
+                    # Para Acervo: Parar se ver o próximo mês ou TOTAL
+                    if re.match(r'^(Janeiro|Fevereiro|Março|Abril|Maio|Junho|Julho|Agosto|Setembro|Outubro|Novembro|Dezembro|Jan\.?|Fev\.?|Mar\.?|Abr\.?|Mai\.?|Jun\.?|Jul\.?|Ago\.?|Set\.?|Out\.?|Nov\.?|Dez\.?|TOTAL)', proxima, re.IGNORECASE):
+                        break
+                else:
+                    # Para Depreciação: Parar se ver a próxima data (ex: 02/2026) ou TOTAL
+                    if re.match(r'^(\d{2}/\d{4}|TOTAL)', proxima, re.IGNORECASE):
+                        break
+                        
+                bloco_texto += " " + proxima
+                
+            # Limpa espaços a meio de milhares
+            bloco_texto = re.sub(r'(?<=\d)\s(?=\d{3}(?:[.,\s]|$))', '', bloco_texto)
+            
+            # Extrai todos os números desse super-bloco
+            matches = re.findall(r'[\d\.,]+', bloco_texto)
+            if len(matches) >= 1:
+                return limpar_valor_pdf(matches[-1]) 
+                
     return 0.0
 
 class PDF_Report(FPDF):
@@ -181,7 +209,6 @@ if st.button("🚀 Iniciar Conciliação", use_container_width=True, type="prima
                 if val0.isdigit() and len(val0) >= 5:
                     ug = val0
                     nome = str(row[1]).strip()
-                    # AQUI USAMOS A FUNÇÃO NOVA ESPECÍFICA PARA O EXCEL:
                     saldo_acervo = limpar_valor_excel(row[2]) if len(row) > 2 else 0.0
                     saldo_dep = limpar_valor_excel(row[3]) if len(row) > 3 else 0.0
                     
