@@ -76,7 +76,7 @@ def limpar_valor_pdf(v):
     else:
         return float(v.replace('.', '').replace(',', '.'))
 
-# MOTOR DE EXTRAÇÃO COM PADRÃO FINANCEIRO UNIVERSAL
+# MOTOR DE EXTRAÇÃO CIRÚRGICO
 def extrair_valor_pdf(pdf_bytes, texto_busca, texto_abrev=None, is_dep=False):
     texto_completo = ""
     try:
@@ -102,7 +102,7 @@ def extrair_valor_pdf(pdf_bytes, texto_busca, texto_abrev=None, is_dep=False):
                 proxima = linhas[j].strip().replace('"', '')
                 if not proxima: continue
                 
-                # Critério de paragem de leitura
+                # Critério de parada de leitura
                 if not is_dep:
                     if re.match(r'^(Janeiro|Fevereiro|Março|Abril|Maio|Junho|Julho|Agosto|Setembro|Outubro|Novembro|Dezembro|Jan\.?|Fev\.?|Mar\.?|Abr\.?|Mai\.?|Jun\.?|Jul\.?|Ago\.?|Set\.?|Out\.?|Nov\.?|Dez\.?|TOTAL)', proxima, re.IGNORECASE):
                         break
@@ -112,14 +112,15 @@ def extrair_valor_pdf(pdf_bytes, texto_busca, texto_abrev=None, is_dep=False):
                         
                 bloco_texto += " " + proxima
                 
-            # A MÁGICA GENÉRICA AQUI:
-            # Padrão: 1 a 3 dígitos, seguido de múltiplos de 3 dígitos (separados por ponto, vírgula ou espaço), terminando com 2 dígitos de cêntimos.
-            # Isso captura perfeitamente tanto "1.205 936,50" como "205 936,50" e "752.327,96".
-            padrao_financeiro = r'\d{1,3}(?:(?:[.,]|\s+)\d{3})*(?:[.,]\d{2})'
-            matches = re.findall(padrao_financeiro, bloco_texto)
+            # CORREÇÃO CIRÚRGICA DE ESPAÇOS MILHARES
+            # Só remove o espaço se: 
+            # 1. For precedido por Ponto e 3 dígitos (ex: .205)
+            # 2. For seguido de 3 dígitos, vírgula e 2 dígitos (ex: 936,50)
+            # Isso conserta o "1.205 936,50" mas não afeta o "5.915.86 752.327,96"
+            bloco_texto = re.sub(r'(\.\d{3})\s+(?=\d{3}[.,]\d{2}(?!\d))', r'\1', bloco_texto)
             
+            matches = re.findall(r'[\d\.,]+', bloco_texto)
             if len(matches) >= 1:
-                # Retorna sempre o último valor financeiro encontrado no bloco (Saldo Atual)
                 return limpar_valor_pdf(matches[-1]) 
                 
     return 0.0
