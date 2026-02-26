@@ -94,9 +94,9 @@ with st.expander("📘 GUIA DE USO (Clique para abrir)", expanded=False):
     st.markdown("""
     1. Selecione o **Mês** e o **Ano** exatos que deseja conciliar.
     2. Anexe a **Planilha Excel (Conf. RMB)** e todos os **arquivos PDF (Pergamum)** de uma só vez.
-    3. **Nomenclatura dos PDFs:** - Acervo: Número da UG (ex: `153289.pdf`)
-       - Depreciação: Número da UG com 'd' no final (ex: `153289d.pdf`). *Se houver mais de um relatório de depreciação para a mesma UG, use `d2`, `d3` (ex: `153289d2.pdf`). O sistema somará todos automaticamente.*
-    4. Clique em "Iniciar Conciliação" e aguarde o relatório.
+    3. **Nomenclatura dos PDFs:** - **Acervo:** Número da UG (ex: `153289.pdf`). *Se houver mais de um, use `a`, `a1`, `a2` no final (ex: `153289a.pdf`, `153289a2.pdf`).*
+       - **Depreciação:** Número da UG com 'd' no final (ex: `153289d.pdf`). *Se houver mais de um, use `d2`, `d3` (ex: `153289d2.pdf`).*
+    4. O sistema somará todos os relatórios da mesma categoria automaticamente. Clique em "Iniciar Conciliação".
     """)
 
 # Seleção de Data
@@ -168,6 +168,7 @@ if st.button("🚀 Iniciar Conciliação", use_container_width=True, type="prima
                         'pdf_dep': 0.0,
                         'achou_pdf_acervo': False,
                         'achou_pdf_dep': False,
+                        'arquivos_acervo_somados': 0,
                         'arquivos_dep_somados': 0
                     }
         except Exception as e:
@@ -182,15 +183,23 @@ if st.button("🚀 Iniciar Conciliação", use_container_width=True, type="prima
 
         # Extração dos valores dos PDFs
         for i, (ug, info) in enumerate(dados_ug.items()):
-            nome_pdf_acervo = f"{ug}.pdf"
             
-            # 1. Busca PDF Normal (Acervo)
-            if nome_pdf_acervo in pdfs:
+            # 1. Busca Múltiplos PDFs de Acervo (Regex para achar .pdf, a.pdf, a1.pdf...)
+            padrao_acervo = re.compile(rf"^{ug}(a\d*)?\.pdf$")
+            achou_algum_acervo = False
+            
+            for nome_arquivo, arquivo_obj in pdfs.items():
+                if padrao_acervo.match(nome_arquivo):
+                    achou_algum_acervo = True
+                    info['arquivos_acervo_somados'] += 1
+                    arquivo_obj.seek(0)
+                    valor_extraido = extrair_valor_pdf(arquivo_obj.read(), texto_busca_acervo, is_dep=False)
+                    info['pdf_acervo'] += valor_extraido # Soma os valores se houver mais de um
+            
+            if achou_algum_acervo:
                 info['achou_pdf_acervo'] = True
-                pdfs[nome_pdf_acervo].seek(0)
-                info['pdf_acervo'] = extrair_valor_pdf(pdfs[nome_pdf_acervo].read(), texto_busca_acervo, is_dep=False)
             else:
-                logs.append(f"⚠️ UG {ug}: Faltou o PDF do Acervo ({nome_pdf_acervo}).")
+                logs.append(f"⚠️ UG {ug}: Faltou o PDF do Acervo (esperado {ug}.pdf).")
 
             # 2. Busca Múltiplos PDFs de Depreciação (Regex para achar d, d2, d3...)
             padrao_dep = re.compile(rf"^{ug}d\d*\.pdf$")
@@ -233,15 +242,20 @@ if st.button("🚀 Iniciar Conciliação", use_container_width=True, type="prima
             
             tem_erro = abs(dif_acervo) > 0.05 or abs(dif_dep) > 0.05
             
+            # Construção do título do bloco no PDF com informação de somas
+            texto_ug = f"Unidade Gestora: {ug} - {info['nome'][:50]}"
+            avisos_soma = []
+            if info['arquivos_acervo_somados'] > 1:
+                avisos_soma.append(f"{info['arquivos_acervo_somados']} Acervos")
+            if info['arquivos_dep_somados'] > 1:
+                avisos_soma.append(f"{info['arquivos_dep_somados']} Depreciações")
+            
+            if avisos_soma:
+                texto_ug += f" (+{' e '.join(avisos_soma)})"
+                
             # Geração do bloco no PDF
             pdf_out.set_font("helvetica", 'B', 10)
             pdf_out.set_fill_color(240, 240, 240)
-            
-            # Informação extra se somou mais de um PDF de depreciação
-            texto_ug = f"Unidade Gestora: {ug} - {info['nome'][:55]}"
-            if info['arquivos_dep_somados'] > 1:
-                texto_ug += f" (+{info['arquivos_dep_somados']} relatórios DEP)"
-                
             pdf_out.cell(0, 8, text=texto_ug, border=1, new_x=XPos.LMARGIN, new_y=YPos.NEXT, fill=True)
             
             pdf_out.set_font("helvetica", 'B', 8)
@@ -273,7 +287,7 @@ if st.button("🚀 Iniciar Conciliação", use_container_width=True, type="prima
             
             # Exibição na Tela (Expander se tiver erro)
             if tem_erro:
-                aviso_extra = f" (⚠️ {info['arquivos_dep_somados']} Relatórios de Depreciação somados)" if info['arquivos_dep_somados'] > 1 else ""
+                aviso_extra = f" (⚠️ {' e '.join(avisos_soma)} somados)" if avisos_soma else ""
                 with st.expander(f"⚠️ UG {ug}: Divergências Encontradas {aviso_extra}", expanded=True):
                     df_view = pd.DataFrame([
                         {"Conta": "Acervo Bibliográfico", "PDF": info['pdf_acervo'], "Excel": info['ex_acervo'], "Diferença": dif_acervo},
