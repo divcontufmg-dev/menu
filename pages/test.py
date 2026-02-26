@@ -60,12 +60,10 @@ def limpar_valor_excel(v):
     except:
         return 0.0
 
-# FUNÇÃO EXCLUSIVA PARA O PDF (Agora 100% Blindada)
+# FUNÇÃO EXCLUSIVA PARA O PDF (100% Blindada e aceita cêntimos com ponto)
 def limpar_valor_pdf(v):
-    # Pega apenas números, pontos e vírgulas
     v = re.sub(r'[^\d\.,]', '', str(v))
     
-    # SE NÃO TIVER NENHUM NÚMERO (ex: um "." isolado), ignora e retorna 0
     if not any(c.isdigit() for c in v): 
         return 0.0
     
@@ -83,7 +81,7 @@ def limpar_valor_pdf(v):
     except Exception:
         return 0.0
 
-# MOTOR DE EXTRAÇÃO CIRÚRGICO - AGORA COM VARREDURA TOTAL
+# MOTOR DE EXTRAÇÃO HÍBRIDO (Mês + Total)
 def extrair_valor_pdf(pdf_bytes, texto_busca, texto_abrev=None, is_dep=False):
     texto_completo = ""
     try:
@@ -95,23 +93,44 @@ def extrair_valor_pdf(pdf_bytes, texto_busca, texto_abrev=None, is_dep=False):
     
     linhas = texto_completo.split('\n')
     valor_final = 0.0
+    encontrou_mes = False
     
     for i, line in enumerate(linhas):
         line_clean = line.strip().replace('"', '') 
         if not line_clean: continue
         
-        condicao_extenso = line_clean.upper().startswith(texto_busca.upper())
-        condicao_abrev = texto_abrev and line_clean.upper().startswith(texto_abrev.upper())
+        condicao_mes = False
+        condicao_total = False
         
-        if condicao_extenso or condicao_abrev:
+        if not is_dep:
+            # ACERVO: Busca inteligente pelo Mês (Ignora números fantasmas antes, ex: "0 Janeiro")
+            padrao_mes = rf'^[\d\s\W]*({texto_busca.upper()}'
+            if texto_abrev:
+                padrao_mes += rf'|{texto_abrev.upper()}'
+            padrao_mes += r')\b'
+            
+            if re.search(padrao_mes, line_clean.upper()):
+                condicao_mes = True
+            # Se já achou o mês e a linha atual for a de TOTAL geral
+            elif encontrou_mes and re.match(r'^[\d\s\W]*TOTAL\b', line_clean.upper()):
+                condicao_total = True
+        else:
+            # DEPRECIAÇÃO: Busca estrita pela data (ex: "01/2026")
+            if line_clean.upper().startswith(texto_busca.upper()):
+                condicao_mes = True
+                
+        if condicao_mes or condicao_total:
+            if condicao_mes:
+                encontrou_mes = True # Marca que o mês já passou, agora pode caçar o TOTAL
+                
             bloco_texto = line_clean
             
-            # Reconstrói a tabela caso o PDF tenha vindo quebrado em várias linhas
+            # Reconstrói a tabela lendo as próximas linhas
             for j in range(i + 1, min(i + 30, len(linhas))):
                 proxima = linhas[j].strip().replace('"', '')
                 if not proxima: continue
                 
-                # Critério de parada de leitura (Cobre meses, rodapé, paginação e sistema)
+                # Critério de parada (Para no próximo mês, no TOTAL ou no rodapé)
                 if not is_dep:
                     if re.match(r'^(Janeiro|Fevereiro|Março|Abril|Maio|Junho|Julho|Agosto|Setembro|Outubro|Novembro|Dezembro|Jan\.?|Fev\.?|Mar\.?|Abr\.?|Mai\.?|Jun\.?|Jul\.?|Ago\.?|Set\.?|Out\.?|Nov\.?|Dez\.?|TOTAL|Pag\.|Página|Pergamum|Sistema|Emissão|Data)', proxima, re.IGNORECASE):
                         break
@@ -124,15 +143,14 @@ def extrair_valor_pdf(pdf_bytes, texto_busca, texto_abrev=None, is_dep=False):
             # CORREÇÃO CIRÚRGICA DE ESPAÇOS MILHARES
             bloco_texto = re.sub(r'(\.\d{3})\s+(?=\d{3}[.,]\d{2}(?!\d))', r'\1', bloco_texto)
             
-            # Filtra apenas os blocos que contenham dígitos
             matches = [m for m in re.findall(r'[\d\.,]+', bloco_texto) if any(c.isdigit() for c in m)]
             
             if len(matches) >= 1:
                 novo_valor = limpar_valor_pdf(matches[-1])
-                # Grava o valor apenas se for válido. Como varre até o fim, pega a última linha de TOTAL (o Saldo Final real)
-                if novo_valor != 0.0 or valor_final == 0.0:
+                if novo_valor != 0.0:
+                    # Sobrescreve: Se achar o mês grava. Se achar o TOTAL depois, sobrescreve o valor do mês.
                     valor_final = novo_valor 
-                
+                    
     return valor_final
 
 class PDF_Report(FPDF):
@@ -163,6 +181,7 @@ with st.expander("📘 GUIA DE USO (Clique para abrir)", expanded=False):
 # Seleção de Data
 col_mes, col_ano = st.columns(2)
 meses = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"]
+meses_abrev = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"]
 
 with col_mes:
     mes_selecionado = st.selectbox("Selecione o Mês:", meses)
@@ -172,9 +191,9 @@ with col_ano:
 idx_mes = meses.index(mes_selecionado)
 mes_num = f"{idx_mes + 1:02d}"
 
-# ALTERAÇÃO DE LÓGICA: O Acervo agora caça o TOTAL Final, a Depreciação caça o Mês/Ano
-texto_busca_acervo = "TOTAL"           
-texto_abrev_acervo = None      
+# VOLTAMOS AO MÊS: A nova lógica Híbrida caça o mês e depois verifica se existe um TOTAL
+texto_busca_acervo = mes_selecionado           
+texto_abrev_acervo = meses_abrev[idx_mes]      
 texto_busca_dep = f"{mes_num}/{ano_selecionado}" 
 
 # Área de Upload Unificada
