@@ -245,7 +245,7 @@ if st.button("🚀 Gerar Relatório de Conciliação", type="primary", use_conta
                     grupos_combinados = sorted(list(set(d_pdf_raw.keys()) | set(d_excel.keys())))
                     
                     d_pdf = {}
-                    grupos_com_erro = []
+                    grupos_com_erro = {} # Agora é um dicionário inteligente
                     erro_original = False
                     
                     for g in grupos_combinados:
@@ -258,9 +258,13 @@ if st.button("🚀 Gerar Relatório de Conciliação", type="primary", use_conta
                         
                         d_pdf[g] = {'saldo': vp_saldo, 'movimento': vp_mov}
                         
-                        if abs(vp_saldo - ve_saldo) > 0.00 or abs(vp_mov - ve_mov) > 0.00:
+                        err_saldo = abs(vp_saldo - ve_saldo) > 0.00
+                        err_mov = abs(vp_mov - ve_mov) > 0.00
+                        
+                        # Regista separadamente qual é a métrica com divergência
+                        if err_saldo or err_mov:
                             erro_original = True
-                            grupos_com_erro.append(g)
+                            grupos_com_erro[g] = {'saldo': err_saldo, 'movimento': err_mov}
 
                     dados_ug[sheet_name] = {
                         'uid': uid,
@@ -288,7 +292,7 @@ if st.button("🚀 Gerar Relatório de Conciliação", type="primary", use_conta
 if st.session_state.get('dados_processados'):
     st.markdown("---")
     st.subheader("🔍 Resultados da Conciliação & Revisão")
-    st.info("💡 **Ação Cirúrgica:** Apenas os grupos com divergências (ou ficheiros em falta) exibem campos de edição. As edições ficarão registadas no PDF Final.")
+    st.info("💡 **Ação Cirúrgica:** Apenas os dados com divergências exibem campos de edição. O que já está correto fica protegido.")
 
     pdf_out = PDFRelatorio()
     pdf_out.set_auto_page_break(auto=True, margin=15)
@@ -305,7 +309,7 @@ if st.session_state.get('dados_processados'):
         
         # 1. ATUALIZA VALORES EM TEMPO REAL
         if info['erro_original'] or not info['tem_pdf']:
-            for g in info['grupos_com_erro']:
+            for g in info['grupos_com_erro'].keys():
                 k_saldo = f"ed_s_{sheet_name}_{g}"
                 k_mov = f"ed_m_{sheet_name}_{g}"
                 if k_saldo in st.session_state: d_pdf[g]['saldo'] = st.session_state[k_saldo]
@@ -379,13 +383,21 @@ if st.session_state.get('dados_processados'):
                 if info['grupos_com_erro']:
                     st.markdown("---")
                     st.markdown("**✏️ Correção Direta por Grupo Divergente:**")
-                    for g in info['grupos_com_erro']:
+                    for g, erros in info['grupos_com_erro'].items():
                         st.markdown(f"**🔹 Grupo {g}**")
                         c1, c2 = st.columns(2)
+                        
                         with c1:
-                            st.number_input(f"Saldo Acumulado (Relatório)", value=float(d_pdf[g]['saldo']), step=100.0, key=f"ed_s_{sheet_name}_{g}")
+                            if erros['saldo'] or not info['tem_pdf']:
+                                st.number_input(f"Saldo Acumulado (Relatório)", value=float(d_pdf[g]['saldo']), step=100.0, key=f"ed_s_{sheet_name}_{g}")
+                            else:
+                                st.text_input(f"Saldo Acumulado (Correto)", value=f"R$ {formatar_real(d_pdf[g]['saldo'])}", disabled=True, key=f"dis_s_{sheet_name}_{g}")
+                        
                         with c2:
-                            st.number_input(f"Mês Corrente (Relatório)", value=float(d_pdf[g]['movimento']), step=100.0, key=f"ed_m_{sheet_name}_{g}")
+                            if erros['movimento'] or not info['tem_pdf']:
+                                st.number_input(f"Mês Corrente (Relatório)", value=float(d_pdf[g]['movimento']), step=100.0, key=f"ed_m_{sheet_name}_{g}")
+                            else:
+                                st.text_input(f"Mês Corrente (Correto)", value=f"R$ {formatar_real(d_pdf[g]['movimento'])}", disabled=True, key=f"dis_m_{sheet_name}_{g}")
 
         # 4. ESCRITA NO PDF FINAL
         if pdf_out.get_y() > 240: pdf_out.add_page()
