@@ -76,7 +76,7 @@ def limpar_valor_pdf(v):
     else:
         return float(v.replace('.', '').replace(',', '.'))
 
-# MOTOR DE EXTRAÇÃO RECONSTRUÍDO (Leitura por Blocos)
+# MOTOR DE EXTRAÇÃO COM PADRÃO FINANCEIRO UNIVERSAL
 def extrair_valor_pdf(pdf_bytes, texto_busca, texto_abrev=None, is_dep=False):
     texto_completo = ""
     try:
@@ -94,33 +94,32 @@ def extrair_valor_pdf(pdf_bytes, texto_busca, texto_abrev=None, is_dep=False):
         condicao_extenso = line_clean.upper().startswith(texto_busca.upper())
         condicao_abrev = texto_abrev and line_clean.upper().startswith(texto_abrev.upper())
         
-        # Quando encontra a linha do mês/data
         if condicao_extenso or condicao_abrev:
             bloco_texto = line_clean
             
-            # Vai varrer as próximas 50 linhas para reconstruir a tabela "partida"
+            # Reconstrói a tabela caso o PDF tenha vindo quebrado em várias linhas
             for j in range(i + 1, min(i + 50, len(linhas))):
                 proxima = linhas[j].strip().replace('"', '')
                 if not proxima: continue
                 
-                # Critério de parada: bateu de frente com a linha do mês seguinte ou final
+                # Critério de paragem de leitura
                 if not is_dep:
-                    # Para Acervo: Parar se ver o próximo mês ou TOTAL
                     if re.match(r'^(Janeiro|Fevereiro|Março|Abril|Maio|Junho|Julho|Agosto|Setembro|Outubro|Novembro|Dezembro|Jan\.?|Fev\.?|Mar\.?|Abr\.?|Mai\.?|Jun\.?|Jul\.?|Ago\.?|Set\.?|Out\.?|Nov\.?|Dez\.?|TOTAL)', proxima, re.IGNORECASE):
                         break
                 else:
-                    # Para Depreciação: Parar se ver a próxima data (ex: 02/2026) ou TOTAL
                     if re.match(r'^(\d{2}/\d{4}|TOTAL)', proxima, re.IGNORECASE):
                         break
                         
                 bloco_texto += " " + proxima
                 
-            # Limpa espaços a meio de milhares
-            bloco_texto = re.sub(r'(?<=\d)\s(?=\d{3}(?:[.,\s]|$))', '', bloco_texto)
+            # A MÁGICA GENÉRICA AQUI:
+            # Padrão: 1 a 3 dígitos, seguido de múltiplos de 3 dígitos (separados por ponto, vírgula ou espaço), terminando com 2 dígitos de cêntimos.
+            # Isso captura perfeitamente tanto "1.205 936,50" como "205 936,50" e "752.327,96".
+            padrao_financeiro = r'\d{1,3}(?:(?:[.,]|\s+)\d{3})*(?:[.,]\d{2})'
+            matches = re.findall(padrao_financeiro, bloco_texto)
             
-            # Extrai todos os números desse super-bloco
-            matches = re.findall(r'[\d\.,]+', bloco_texto)
             if len(matches) >= 1:
+                # Retorna sempre o último valor financeiro encontrado no bloco (Saldo Atual)
                 return limpar_valor_pdf(matches[-1]) 
                 
     return 0.0
