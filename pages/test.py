@@ -60,21 +60,28 @@ def limpar_valor_excel(v):
     except:
         return 0.0
 
-# FUNÇÃO EXCLUSIVA PARA O PDF
+# FUNÇÃO EXCLUSIVA PARA O PDF (Agora 100% Blindada)
 def limpar_valor_pdf(v):
+    # Pega apenas números, pontos e vírgulas
     v = re.sub(r'[^\d\.,]', '', str(v))
-    if not v: return 0.0
     
-    if len(v) >= 3 and v[-3] in ['.', ',']:
-        inteiro = v[:-3].replace('.', '').replace(',', '')
-        decimal = v[-2:]
-        return float(f"{inteiro}.{decimal}")
-    elif len(v) >= 2 and v[-2] in ['.', ',']:
-        inteiro = v[:-2].replace('.', '').replace(',', '')
-        decimal = v[-1:]
-        return float(f"{inteiro}.{decimal}")
-    else:
-        return float(v.replace('.', '').replace(',', '.'))
+    # SE NÃO TIVER NENHUM NÚMERO (ex: um "." isolado), ignora e retorna 0
+    if not any(c.isdigit() for c in v): 
+        return 0.0
+    
+    try:
+        if len(v) >= 3 and v[-3] in ['.', ',']:
+            inteiro = v[:-3].replace('.', '').replace(',', '')
+            decimal = v[-2:]
+            return float(f"{inteiro}.{decimal}")
+        elif len(v) >= 2 and v[-2] in ['.', ',']:
+            inteiro = v[:-2].replace('.', '').replace(',', '')
+            decimal = v[-1:]
+            return float(f"{inteiro}.{decimal}")
+        else:
+            return float(v.replace('.', '').replace(',', '.'))
+    except Exception:
+        return 0.0
 
 # MOTOR DE EXTRAÇÃO CIRÚRGICO - AGORA COM VARREDURA TOTAL
 def extrair_valor_pdf(pdf_bytes, texto_busca, texto_abrev=None, is_dep=False):
@@ -117,7 +124,9 @@ def extrair_valor_pdf(pdf_bytes, texto_busca, texto_abrev=None, is_dep=False):
             # CORREÇÃO CIRÚRGICA DE ESPAÇOS MILHARES
             bloco_texto = re.sub(r'(\.\d{3})\s+(?=\d{3}[.,]\d{2}(?!\d))', r'\1', bloco_texto)
             
-            matches = re.findall(r'[\d\.,]+', bloco_texto)
+            # Filtra apenas os blocos que contenham dígitos
+            matches = [m for m in re.findall(r'[\d\.,]+', bloco_texto) if any(c.isdigit() for c in m)]
+            
             if len(matches) >= 1:
                 novo_valor = limpar_valor_pdf(matches[-1])
                 # Grava o valor apenas se for válido. Como varre até o fim, pega a última linha de TOTAL (o Saldo Final real)
