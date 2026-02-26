@@ -28,7 +28,7 @@ hide_streamlit_style = """
 st.markdown(hide_streamlit_style, unsafe_allow_html=True)
 
 # Botão para retornar à tela inicial solto no topo da tela
-st.page_link("app.py", label="⬅️ Voltar ao Menu Inicial")
+st.page_link("Menu_principal.py", label="⬅️ Voltar ao Menu Inicial")
 
 # ==========================================
 # FUNÇÕES E CLASSES (BASTIDORES)
