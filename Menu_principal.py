@@ -31,10 +31,8 @@ st.markdown("---")
 # Criando botões grandes que levam para as outras páginas
 # st.page_link("pages/1_Preparar planilha Siafi RMB.py", label="📊 1. VBA RMB", icon="▶️")
 st.page_link("pages/2.1_Conciliador_RMB_x_SIAFI.py", label="📝 1. Conciliador RMB x SIAFI", icon="▶️")
-
 # st.page_link("pages/3_Preparar planilha Siafi Depreciação.py", label="🔧 3. VBA Depreciação", icon="▶️")
+
 st.page_link("pages/4.1_Conciliador_Depreciação_x_SIAFI.py", label="📁 2. Conciliador Depreciação x SIAFI", icon="▶️")
-
 st.page_link("pages/5.1_Conciliador_Almoxarifado_x_SIAFI.py", label="💼 3. Conciliador Almoxarifado x SIAFI", icon="▶️")
-
-st.page_link("pages/test.py", label="💼 3. test", icon="▶️")
+st.page_link("pages/6_Conciliador_Biblioteca.py", label="💻 4. Conciliador Biblioteca", icon="▶️")
