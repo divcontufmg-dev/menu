@@ -37,18 +37,43 @@ def formatar_real(valor):
     sinal = "-" if valor < -0.001 else ""
     return f"{sinal}{abs(valor):,.2f}".replace(',', '_').replace('.', ',').replace('_', '.')
 
-def limpar_valor_flex(v):
-    # Pega apenas números, pontos e vírgulas
+# FUNÇÃO EXCLUSIVA PARA O EXCEL (Preserva o valor original se já for número)
+def limpar_valor_excel(v):
+    if pd.isna(v) or v is None: return 0.0
+    if isinstance(v, (int, float)): return float(v)
+    
+    v_str = str(v).strip()
+    if v_str == '': return 0.0
+    
+    v_str = re.sub(r'[^\d\.,\-]', '', v_str)
+    
+    if ',' in v_str and '.' in v_str:
+        if v_str.rfind(',') > v_str.rfind('.'):
+            v_str = v_str.replace('.', '').replace(',', '.')
+        else:
+            v_str = v_str.replace(',', '')
+    elif ',' in v_str:
+        v_str = v_str.replace(',', '.')
+        
+    try:
+        return float(v_str)
+    except:
+        return 0.0
+
+# FUNÇÃO EXCLUSIVA PARA O PDF (Trata a bagunça dos pontos do Pergamum)
+def limpar_valor_pdf(v):
     v = re.sub(r'[^\d\.,]', '', str(v))
     if not v: return 0.0
     
-    # Tratamento para casos onde o centavo vem separado por ponto ex: 3.074.625.29
     if len(v) >= 3 and v[-3] in ['.', ',']:
         inteiro = v[:-3].replace('.', '').replace(',', '')
         decimal = v[-2:]
         return float(f"{inteiro}.{decimal}")
+    elif len(v) >= 2 and v[-2] in ['.', ',']:
+        inteiro = v[:-2].replace('.', '').replace(',', '')
+        decimal = v[-1:]
+        return float(f"{inteiro}.{decimal}")
     else:
-        # Se não tiver casas decimais claras, limpa tudo e converte
         return float(v.replace('.', '').replace(',', '.'))
 
 def extrair_valor_pdf(pdf_bytes, texto_busca, texto_abrev=None, is_dep=False):
@@ -61,18 +86,13 @@ def extrair_valor_pdf(pdf_bytes, texto_busca, texto_abrev=None, is_dep=False):
         for line in texto_completo.split('\n'):
             line = line.strip().replace('"', '') 
             
-            # Procura a linha que começa com o Mês por extenso (Janeiro) OU abreviado (Jan)
             condicao_extenso = line.upper().startswith(texto_busca.upper())
             condicao_abrev = texto_abrev and line.upper().startswith(texto_abrev.upper())
             
             if condicao_extenso or condicao_abrev:
-                # Pega todos os blocos numéricos da linha
                 matches = re.findall(r'[\d\.,]+', line)
-                
-                # Só aceita se a linha tiver números suficientes (garante que é a linha da tabela e não um título solto)
                 if len(matches) >= 2:
-                    # O saldo final/acumulado é sempre o último bloco numérico extraído da linha
-                    return limpar_valor_flex(matches[-1])
+                    return limpar_valor_pdf(matches[-1]) # Usa o limpador de PDF
     except Exception:
         pass
     return 0.0
@@ -112,13 +132,12 @@ with col_mes:
 with col_ano:
     ano_selecionado = st.number_input("Digite o Ano:", min_value=2000, max_value=2100, value=2026, step=1)
 
-# Constrói o texto exato que o sistema vai procurar no PDF de acordo com a seleção
 idx_mes = meses.index(mes_selecionado)
 mes_num = f"{idx_mes + 1:02d}"
 
-texto_busca_acervo = mes_selecionado           # Ex: "Janeiro"
-texto_abrev_acervo = meses_abrev[idx_mes]      # Ex: "Jan"
-texto_busca_dep = f"{mes_num}/{ano_selecionado}" # Ex: "01/2026"
+texto_busca_acervo = mes_selecionado           
+texto_abrev_acervo = meses_abrev[idx_mes]      
+texto_busca_dep = f"{mes_num}/{ano_selecionado}" 
 
 # Área de Upload Unificada
 uploaded_files = st.file_uploader(
@@ -138,7 +157,6 @@ if st.button("🚀 Iniciar Conciliação", use_container_width=True, type="prima
         progresso = st.progress(0)
         status_text = st.empty()
         
-        # Classificação dos arquivos em minúsculas para não dar erro se o utilizador escrever .PDF
         pdfs = {f.name.lower(): f for f in uploaded_files if f.name.lower().endswith('.pdf')}
         excel_files = [f for f in uploaded_files if f.name.lower().endswith(('.xlsx', '.xls', '.csv'))]
         
@@ -152,26 +170,25 @@ if st.button("🚀 Iniciar Conciliação", use_container_width=True, type="prima
 
         status_text.text("Lendo os dados da Planilha Base...")
         try:
-            # Tenta ler como Excel, se falhar tenta como CSV
             planilha_mestre.seek(0)
             if planilha_mestre.name.lower().endswith('.csv'):
                 df = pd.read_csv(planilha_mestre)
             else:
                 df = pd.read_excel(planilha_mestre, header=None)
             
-            # Varrer a planilha à procura de códigos de UG (números de 6 dígitos) na primeira coluna
             for idx, row in df.iterrows():
                 val0 = str(row[0]).strip()
                 if val0.isdigit() and len(val0) >= 5:
                     ug = val0
                     nome = str(row[1]).strip()
-                    saldo_acervo = limpar_valor_flex(row[2]) if len(row) > 2 else 0.0
-                    saldo_dep = limpar_valor_flex(row[3]) if len(row) > 3 else 0.0
+                    # AQUI USAMOS A FUNÇÃO NOVA ESPECÍFICA PARA O EXCEL:
+                    saldo_acervo = limpar_valor_excel(row[2]) if len(row) > 2 else 0.0
+                    saldo_dep = limpar_valor_excel(row[3]) if len(row) > 3 else 0.0
                     
                     dados_ug[ug] = {
                         'nome': nome,
                         'ex_acervo': saldo_acervo,
-                        'ex_dep': abs(saldo_dep), # Pega valor absoluto pois no excel costuma vir negativo
+                        'ex_dep': abs(saldo_dep), 
                         'pdf_acervo': 0.0,
                         'pdf_dep': 0.0,
                         'achou_pdf_acervo': False,
@@ -189,10 +206,9 @@ if st.button("🚀 Iniciar Conciliação", use_container_width=True, type="prima
             st.warning("⚠️ Nenhuma Unidade Gestora (UG) foi encontrada na primeira coluna da planilha.")
             st.stop()
 
-        # Extração dos valores dos PDFs
         for i, (ug, info) in enumerate(dados_ug.items()):
             
-            # 1. Busca Múltiplos PDFs de Acervo (Regex para achar .pdf, a.pdf, a1.pdf...)
+            # 1. Busca Múltiplos PDFs de Acervo
             padrao_acervo = re.compile(rf"^{ug}(a\d*)?\.pdf$")
             achou_algum_acervo = False
             
@@ -214,7 +230,7 @@ if st.button("🚀 Iniciar Conciliação", use_container_width=True, type="prima
             else:
                 logs.append(f"⚠️ UG {ug}: Faltou o PDF do Acervo (esperado {ug}.pdf).")
 
-            # 2. Busca Múltiplos PDFs de Depreciação (Regex para achar d, d2, d3...)
+            # 2. Busca Múltiplos PDFs de Depreciação
             padrao_dep = re.compile(rf"^{ug}d\d*\.pdf$")
             achou_algum_dep = False
             
@@ -260,7 +276,6 @@ if st.button("🚀 Iniciar Conciliação", use_container_width=True, type="prima
             
             tem_erro = abs(dif_acervo) > 0.05 or abs(dif_dep) > 0.05
             
-            # Construção do título do bloco no PDF com informação de somas
             texto_ug = f"Unidade Gestora: {ug} - {info['nome'][:50]}"
             avisos_soma = []
             if info['arquivos_acervo_somados'] > 1:
@@ -271,7 +286,6 @@ if st.button("🚀 Iniciar Conciliação", use_container_width=True, type="prima
             if avisos_soma:
                 texto_ug += f" (+{' e '.join(avisos_soma)})"
                 
-            # Geração do bloco no PDF
             pdf_out.set_font("helvetica", 'B', 10)
             pdf_out.set_fill_color(240, 240, 240)
             pdf_out.cell(0, 8, text=texto_ug, border=1, new_x=XPos.LMARGIN, new_y=YPos.NEXT, fill=True)
@@ -285,7 +299,6 @@ if st.button("🚀 Iniciar Conciliação", use_container_width=True, type="prima
             
             pdf_out.set_font("helvetica", '', 8)
             
-            # Linha 1: Acervo
             pdf_out.cell(46, 7, "Acervo Bibliográfico", 1)
             pdf_out.cell(48, 7, f"R$ {formatar_real(info['pdf_acervo'])}", 1, align='R')
             pdf_out.cell(48, 7, f"R$ {formatar_real(info['ex_acervo'])}", 1, align='R')
@@ -293,7 +306,6 @@ if st.button("🚀 Iniciar Conciliação", use_container_width=True, type="prima
             pdf_out.cell(48, 7, f"R$ {formatar_real(dif_acervo)}", 1, align='R', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
             pdf_out.set_text_color(0, 0, 0)
             
-            # Linha 2: Depreciação
             pdf_out.cell(46, 7, "Depreciação Acumulada", 1)
             pdf_out.cell(48, 7, f"R$ {formatar_real(info['pdf_dep'])}", 1, align='R')
             pdf_out.cell(48, 7, f"R$ {formatar_real(info['ex_dep'])}", 1, align='R')
@@ -303,7 +315,6 @@ if st.button("🚀 Iniciar Conciliação", use_container_width=True, type="prima
             
             pdf_out.ln(5)
             
-            # Exibição na Tela (Expander se tiver erro)
             if tem_erro:
                 aviso_extra = f" (⚠️ {' e '.join(avisos_soma)} somados)" if avisos_soma else ""
                 with st.expander(f"⚠️ UG {ug}: Divergências Encontradas {aviso_extra}", expanded=True):
@@ -311,10 +322,8 @@ if st.button("🚀 Iniciar Conciliação", use_container_width=True, type="prima
                         {"Conta": "Acervo Bibliográfico", "PDF": info['pdf_acervo'], "Excel": info['ex_acervo'], "Diferença": dif_acervo},
                         {"Conta": "Depreciação Acumulada", "PDF": info['pdf_dep'], "Excel": info['ex_dep'], "Diferença": dif_dep}
                     ])
-                    # Estilização básica para a tela
                     st.dataframe(df_view.style.format({"PDF": "R$ {:,.2f}", "Excel": "R$ {:,.2f}", "Diferença": "R$ {:,.2f}"}))
 
-        # Totais Finais
         dif_total_acervo = total_pdf_acervo - total_ex_acervo
         dif_total_dep = total_pdf_dep - total_ex_dep
         
@@ -330,7 +339,6 @@ if st.button("🚀 Iniciar Conciliação", use_container_width=True, type="prima
             with st.expander("⚠️ Avisos de Ficheiros Ausentes", expanded=False):
                 for log in logs: st.write(log)
         
-        # Download do PDF
         try:
             pdf_bytes = bytes(pdf_out.output())
             st.download_button(
