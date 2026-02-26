@@ -51,7 +51,7 @@ def limpar_valor_flex(v):
         # Se não tiver casas decimais claras, limpa tudo e converte
         return float(v.replace('.', '').replace(',', '.'))
 
-def extrair_valor_pdf(pdf_bytes, texto_busca, is_dep=False):
+def extrair_valor_pdf(pdf_bytes, texto_busca, texto_abrev=None, is_dep=False):
     texto_completo = ""
     try:
         with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
@@ -59,10 +59,13 @@ def extrair_valor_pdf(pdf_bytes, texto_busca, is_dep=False):
                 texto_completo += page.extract_text() + "\n"
                 
         for line in texto_completo.split('\n'):
-            line = line.strip().replace('"', '') # Remove aspas caso a leitura traga
+            line = line.strip().replace('"', '') 
             
-            # Procura exatamente a linha que começa com o Mês (ex: Janeiro) ou Mês/Ano (ex: 01/2026)
-            if line.upper().startswith(texto_busca.upper()):
+            # Procura a linha que começa com o Mês por extenso (Janeiro) OU abreviado (Jan)
+            condicao_extenso = line.upper().startswith(texto_busca.upper())
+            condicao_abrev = texto_abrev and line.upper().startswith(texto_abrev.upper())
+            
+            if condicao_extenso or condicao_abrev:
                 # Pega todos os blocos numéricos da linha
                 matches = re.findall(r'[\d\.,]+', line)
                 
@@ -102,14 +105,19 @@ with st.expander("📘 GUIA DE USO (Clique para abrir)", expanded=False):
 # Seleção de Data
 col_mes, col_ano = st.columns(2)
 meses = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"]
+meses_abrev = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"]
+
 with col_mes:
     mes_selecionado = st.selectbox("Selecione o Mês:", meses)
 with col_ano:
     ano_selecionado = st.number_input("Digite o Ano:", min_value=2000, max_value=2100, value=2026, step=1)
 
 # Constrói o texto exato que o sistema vai procurar no PDF de acordo com a seleção
-mes_num = f"{meses.index(mes_selecionado) + 1:02d}"
+idx_mes = meses.index(mes_selecionado)
+mes_num = f"{idx_mes + 1:02d}"
+
 texto_busca_acervo = mes_selecionado           # Ex: "Janeiro"
+texto_abrev_acervo = meses_abrev[idx_mes]      # Ex: "Jan"
 texto_busca_dep = f"{mes_num}/{ano_selecionado}" # Ex: "01/2026"
 
 # Área de Upload Unificada
@@ -193,8 +201,13 @@ if st.button("🚀 Iniciar Conciliação", use_container_width=True, type="prima
                     achou_algum_acervo = True
                     info['arquivos_acervo_somados'] += 1
                     arquivo_obj.seek(0)
-                    valor_extraido = extrair_valor_pdf(arquivo_obj.read(), texto_busca_acervo, is_dep=False)
-                    info['pdf_acervo'] += valor_extraido # Soma os valores se houver mais de um
+                    valor_extraido = extrair_valor_pdf(
+                        arquivo_obj.read(), 
+                        texto_busca_acervo, 
+                        texto_abrev=texto_abrev_acervo, 
+                        is_dep=False
+                    )
+                    info['pdf_acervo'] += valor_extraido
             
             if achou_algum_acervo:
                 info['achou_pdf_acervo'] = True
@@ -210,8 +223,13 @@ if st.button("🚀 Iniciar Conciliação", use_container_width=True, type="prima
                     achou_algum_dep = True
                     info['arquivos_dep_somados'] += 1
                     arquivo_obj.seek(0)
-                    valor_extraido = extrair_valor_pdf(arquivo_obj.read(), texto_busca_dep, is_dep=True)
-                    info['pdf_dep'] += valor_extraido # Soma os valores se houver mais de um
+                    valor_extraido = extrair_valor_pdf(
+                        arquivo_obj.read(), 
+                        texto_busca_dep, 
+                        texto_abrev=None, 
+                        is_dep=True
+                    )
+                    info['pdf_dep'] += valor_extraido
             
             if achou_algum_dep:
                 info['achou_pdf_dep'] = True
