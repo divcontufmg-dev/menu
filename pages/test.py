@@ -161,9 +161,7 @@ with st.expander("📘 GUIA DE USO (Clique para abrir)", expanded=False):
     st.markdown("""
     1. Selecione o **Mês** e o **Ano** exatos que deseja conciliar.
     2. Anexe a **Planilha Excel** e os **arquivos PDF**.
-    3. **Nomenclatura dos PDFs:** - **Acervo:** Número da UG (ex: `153289.pdf`, `153289a.pdf`).
-       - **Depreciação:** Número da UG com 'd' no final (ex: `153289d.pdf`).
-    4. O sistema somará tudo. **Se houver erro, poderá corrigir o valor diretamente no ficheiro específico com divergência!**
+    3. O sistema somará tudo. **Poderá corrigir valores divergentes. As edições serão registadas no PDF para auditoria!**
     """)
 
 col_mes, col_ano = st.columns(2)
@@ -231,6 +229,8 @@ if st.button("🚀 Iniciar Conciliação", use_container_width=True, type="prima
                         'ex_dep': abs(saldo_dep), 
                         'pdf_acervo': 0.0,
                         'pdf_dep': 0.0,
+                        'original_pdf_acervo': 0.0, # NOVO: Memória Fotográfica para Auditoria
+                        'original_pdf_dep': 0.0,    # NOVO: Memória Fotográfica para Auditoria
                         'arquivos_acervo_somados': 0,
                         'arquivos_dep_somados': 0,
                         'detalhes_acervo': {}, 
@@ -268,6 +268,10 @@ if st.button("🚀 Iniciar Conciliação", use_container_width=True, type="prima
                     info['detalhes_dep'][nome_arquivo] = valor_extraido
             if info['arquivos_dep_somados'] == 0: logs.append(f"⚠️ UG {ug}: Faltou o PDF de Depreciação.")
             
+            # TIRAR A "FOTOGRAFIA" DOS VALORES ORIGINAIS ANTES DE QUALQUER EDIÇÃO
+            info['original_pdf_acervo'] = info['pdf_acervo']
+            info['original_pdf_dep'] = info['pdf_dep']
+            
             # Marca internamente se a UG teve divergência na primeira leitura para libertar a edição
             info['erro_original_acervo'] = abs(info['pdf_acervo'] - info['ex_acervo']) > 0.05
             info['erro_original_dep'] = abs(info['pdf_dep'] - info['ex_dep']) > 0.05
@@ -286,7 +290,7 @@ if st.button("🚀 Iniciar Conciliação", use_container_width=True, type="prima
 if st.session_state.get('dados_processados'):
     st.markdown("---")
     st.subheader("🔍 Resultados da Análise & Revisão")
-    st.info("💡 **Ação Cirúrgica:** Apenas os campos com divergências permitem edição. Altere o ficheiro específico e o sistema fará o resto.")
+    st.info("💡 **Ação Cirúrgica:** Apenas os campos com divergências permitem edição. As edições ficarão registadas no PDF Final.")
 
     dados_ug = st.session_state.dados_ug
     total_ex_acervo = total_ex_dep = total_pdf_acervo = total_pdf_dep = 0.0
@@ -328,6 +332,10 @@ if st.session_state.get('dados_processados'):
         total_pdf_acervo += info['pdf_acervo']
         total_ex_dep += info['ex_dep']
         total_pdf_dep += info['pdf_dep']
+
+        # VERIFICA SE HOUVE FRAUDE / ALTERAÇÃO MANUAL
+        editado_acervo = abs(info['pdf_acervo'] - info['original_pdf_acervo']) > 0.01
+        editado_dep = abs(info['pdf_dep'] - info['original_pdf_dep']) > 0.01
 
         # CRIAÇÃO DA INTERFACE DA UG
         mostrar_expander = info['erro_original_acervo'] or info['erro_original_dep'] or info['arquivos_acervo_somados'] > 1 or info['arquivos_dep_somados'] > 1
@@ -374,7 +382,9 @@ if st.session_state.get('dados_processados'):
                         else:
                             st.number_input(f"Valor Total (PDF Ausente)", value=float(info['pdf_dep']), step=100.0, key=f"edit_dp_{ug}_total")
 
-        # Escrita no PDF Final
+        # ==========================================
+        # ESCRITA NO PDF FINAL (COM RASTREABILIDADE)
+        # ==========================================
         texto_ug = f"Unidade Gestora: {ug} - {info['nome'][:50]}"
         avisos_soma = []
         if info['arquivos_acervo_somados'] > 1: avisos_soma.append(f"{info['arquivos_acervo_somados']} Acervos")
@@ -394,19 +404,35 @@ if st.session_state.get('dados_processados'):
         
         pdf_out.set_font("helvetica", '', 8)
         
+        # TEXTOS COM ASTERISCO SE EDITADO
+        str_pdf_acervo = f"R$ {formatar_real(info['pdf_acervo'])}" + (" *" if editado_acervo else "")
+        str_pdf_dep = f"R$ {formatar_real(info['pdf_dep'])}" + (" *" if editado_dep else "")
+
+        # Linha Acervo
         pdf_out.cell(46, 7, "Acervo Bibliográfico", 1)
-        pdf_out.cell(48, 7, f"R$ {formatar_real(info['pdf_acervo'])}", 1, align='R')
+        pdf_out.cell(48, 7, str_pdf_acervo, 1, align='R')
         pdf_out.cell(48, 7, f"R$ {formatar_real(info['ex_acervo'])}", 1, align='R')
         if abs(dif_acervo_final) > 0.05: pdf_out.set_text_color(200, 0, 0)
         pdf_out.cell(48, 7, f"R$ {formatar_real(dif_acervo_final)}", 1, align='R', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
         pdf_out.set_text_color(0, 0, 0)
         
+        # Linha Depreciação
         pdf_out.cell(46, 7, "Depreciação Acumulada", 1)
-        pdf_out.cell(48, 7, f"R$ {formatar_real(info['pdf_dep'])}", 1, align='R')
+        pdf_out.cell(48, 7, str_pdf_dep, 1, align='R')
         pdf_out.cell(48, 7, f"R$ {formatar_real(info['ex_dep'])}", 1, align='R')
         if abs(dif_dep_final) > 0.05: pdf_out.set_text_color(200, 0, 0)
         pdf_out.cell(48, 7, f"R$ {formatar_real(dif_dep_final)}", 1, align='R', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
         pdf_out.set_text_color(0, 0, 0)
+        
+        # LOG DE AUDITORIA NO PDF
+        if editado_acervo or editado_dep:
+            pdf_out.set_font("helvetica", 'I', 7)
+            pdf_out.set_text_color(180, 0, 0) # Cor vermelha para alertar fraude/edição
+            if editado_acervo:
+                pdf_out.cell(0, 5, f"* AUDITORIA: O valor do Acervo foi alterado manualmente pelo utilizador. (Valor original lido do PDF: R$ {formatar_real(info['original_pdf_acervo'])})", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+            if editado_dep:
+                pdf_out.cell(0, 5, f"* AUDITORIA: O valor da Depreciação foi alterado manualmente pelo utilizador. (Valor original lido do PDF: R$ {formatar_real(info['original_pdf_dep'])})", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+            pdf_out.set_text_color(0, 0, 0)
         
         pdf_out.ln(5)
 
@@ -426,7 +452,7 @@ if st.session_state.get('dados_processados'):
     try:
         pdf_bytes = bytes(pdf_out.output())
         st.download_button(
-            label="📄 BAIXAR RELATÓRIO FINAL (.PDF)", 
+            label="📄 BAIXAR RELATÓRIO FINAL COM AUDITORIA (.PDF)", 
             data=pdf_bytes, 
             file_name=f"RELATORIO_ACERVO_BIBLIOGRAFICO_{mes_selecionado}_{ano_selecionado}.pdf", 
             mime="application/pdf", 
