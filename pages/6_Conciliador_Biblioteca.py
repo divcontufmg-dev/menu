@@ -5,21 +5,24 @@ import re
 from fpdf import FPDF, XPos, YPos
 import io
 
+# ==========================================
+# CONFIGURAÇÃO INICIAL E MEMÓRIA
+# ==========================================
 st.set_page_config(
     page_title="Conciliador: Acervo Bibliográfico",
     page_icon="📚",
     layout="wide"
 )
 
+# Inicializa a memória do Streamlit
 if 'dados_processados' not in st.session_state:
     st.session_state.dados_processados = False
 if 'dados_ug' not in st.session_state:
     st.session_state.dados_ug = {}
 if 'logs' not in st.session_state:
     st.session_state.logs = []
-if 'arquivos_lidos' not in st.session_state:
-    st.session_state.arquivos_lidos = set()
 
+# Oculta marcas do Streamlit e a barra lateral
 hide_streamlit_style = """
             <style>
             #MainMenu {visibility: hidden;}
@@ -33,9 +36,12 @@ st.markdown(hide_streamlit_style, unsafe_allow_html=True)
 
 st.page_link("Menu_principal.py", label="⬅️ Voltar ao Menu Inicial")
 
-
+# ==========================================
+# FUNÇÕES E CLASSES (BASTIDORES)
+# ==========================================
 def formatar_real(valor):
     sinal = "-" if valor < -0.001 else ""
+    # Transforma 1234.56 em 1.234,56
     return f"{sinal}{abs(valor):,.2f}".replace(',', '_').replace('.', ',').replace('_', '.')
 
 def limpar_valor_excel(v):
@@ -146,19 +152,20 @@ class PDF_Report(FPDF):
         self.set_font('helvetica', 'I', 8)
         self.cell(0, 10, f'Página {self.page_no()}', align='C')
 
-
+# ==========================================
+# INTERFACE DO USUÁRIO
+# ==========================================
 st.title("📚 Conciliador: Acervo Bibliográfico")
 
 with st.expander("📘 GUIA DE USO (Clique para abrir)", expanded=False):
     st.markdown("📌 **Orientações de Uso**")
     st.markdown("""
-    1. Selecione o **Mês** e o **Ano** exatos a serem conciliados.
-    2. Anexe a **Planilha do Tesouro** e os **Relatórios PDF** emitidos.
-    3. **Identificação dos Arquivos:**
-       - **Acervo:** Renomeie o PDF com o número da UG (ex: `153289.pdf`). Se existirem complementos, adicione letras (ex: `153289a.pdf`).
-       - **Depreciação:** Renomeie com o número da UG seguido da letra 'd' (ex: `153289d.pdf`).
-    4. O sistema irá agrupar as informações. Caso encontre inconsistências, poderá corrigi-las manualmente.
-    5. **Esqueceu de algum relatório?** Basta arrastar os PDFs esquecidos para a mesma caixa de anexo e clicar em atualizar!
+    1. Selecione o **Mês** e o **Ano** exatos que deseja conciliar.
+    2. Anexe a **Planilha Excel** e os **arquivos PDF**.
+    3. **Guia de Nomenclatura dos Relatórios:**
+       - **Acervo:** Número da UG (ex: `153289.pdf`). Se houver mais de um, use letras ou números adicionais no final (ex: `153289a.pdf`, `153289a2.pdf`).
+       - **Depreciação:** Número da UG com a letra 'd' no final (ex: `153289d.pdf`, `153289d2.pdf`).
+    4. O sistema somará tudo. **Poderá corrigir valores divergentes. As edições serão registadas no PDF!**
     """)
 
 col_mes, col_ano = st.columns(2)
@@ -178,138 +185,128 @@ texto_abrev_acervo = meses_abrev[idx_mes]
 texto_busca_dep = f"{mes_num}/{ano_selecionado}" 
 
 uploaded_files = st.file_uploader(
-    "📂 Arraste os seus documentos (Planilha e PDFs) para esta área", 
+    "📂 Arraste a Planilha e os Relatórios para esta área", 
     accept_multiple_files=True,
     type=['pdf', 'xlsx', 'xls', 'csv']
 )
 
-is_atualizacao = st.session_state.dados_processados
-botao_label = "🔄 Inserir Ficheiros Esquecidos" if is_atualizacao else "🚀 Iniciar Conciliação"
-
-if st.button(botao_label, use_container_width=True, type="primary"):
-    if not uploaded_files and not is_atualizacao:
-        st.warning("⚠️ Por favor, anexe a planilha e os relatórios para começar.")
+# ==========================================
+# ETAPA 1: PROCESSAMENTO DE DADOS
+# ==========================================
+if st.button("🚀 Iniciar Conciliação", use_container_width=True, type="primary"):
+    if not uploaded_files:
+        st.warning("⚠️ Por favor, insira seus arquivos para que possamos realizar a conciliação.")
     else:
         progresso = st.progress(0)
         status_text = st.empty()
         
-        todos_pdfs_inseridos = {f.name.lower(): f for f in uploaded_files if f.name.lower().endswith('.pdf')}
+        pdfs = {f.name.lower(): f for f in uploaded_files if f.name.lower().endswith('.pdf')}
+        excel_files = [f for f in uploaded_files if f.name.lower().endswith(('.xlsx', '.xls', '.csv'))]
         
-        if not is_atualizacao:
-            excel_files = [f for f in uploaded_files if f.name.lower().endswith(('.xlsx', '.xls', '.csv'))]
-            if not excel_files:
-                st.error("❌ A planilha contendo os dados do Tesouro não foi encontrada. Verifique os anexos.")
-                st.stop()
-                
-            planilha_mestre = excel_files[0]
-            dados_ug = {}
-            logs = []
-            pdfs_para_analise = todos_pdfs_inseridos 
-
-            status_text.text("A preparar a base de dados da Planilha...")
-            try:
-                planilha_mestre.seek(0)
-                if planilha_mestre.name.lower().endswith('.csv'):
-                    df = pd.read_csv(planilha_mestre)
-                else:
-                    df = pd.read_excel(planilha_mestre, header=None)
-                
-                for idx, row in df.iterrows():
-                    val0 = str(row[0]).strip()
-                    if val0.isdigit() and len(val0) >= 5:
-                        ug = val0
-                        nome = str(row[1]).strip()
-                        saldo_acervo = limpar_valor_excel(row[2]) if len(row) > 2 else 0.0
-                        saldo_dep = limpar_valor_excel(row[3]) if len(row) > 3 else 0.0
-                        
-                        dados_ug[ug] = {
-                            'nome': nome,
-                            'ex_acervo': saldo_acervo,
-                            'ex_dep': abs(saldo_dep), 
-                            'pdf_acervo': 0.0,
-                            'pdf_dep': 0.0,
-                            'original_pdf_acervo': 0.0, 
-                            'original_pdf_dep': 0.0,    
-                            'arquivos_acervo_somados': 0,
-                            'arquivos_dep_somados': 0,
-                            'detalhes_acervo': {}, 
-                            'detalhes_dep': {},
-                            'erro_original_acervo': False,
-                            'erro_original_dep': False
-                        }
-            except Exception as e:
-                st.error(f"❌ Não foi possível ler a estrutura da planilha: {e}")
-                st.stop()
-        else:
-            dados_ug = st.session_state.dados_ug
-            logs = st.session_state.logs
-            pdfs_para_analise = {nome: f for nome, f in todos_pdfs_inseridos.items() if nome not in st.session_state.arquivos_lidos}
+        if not excel_files:
+            st.error("❌ A planilha base em Excel não foi encontrada no upload.")
+            st.stop()
             
-            if not pdfs_para_analise:
-                st.warning("⚠️ Não foram detetados relatórios novos na área de anexo. Insira os PDFs que estão em falta.")
-                progresso.empty()
-                status_text.empty()
-                st.stop()
+        planilha_mestre = excel_files[0]
+        dados_ug = {}
+        logs = []
 
-        status_text.text("A verificar e cruzar as informações dos Relatórios (PDF)...")
-        total_ugs = len(dados_ug) if len(dados_ug) > 0 else 1
-        adicionados_agora = 0
+        status_text.text("Lendo os dados da Planilha Base...")
+        try:
+            planilha_mestre.seek(0)
+            if planilha_mestre.name.lower().endswith('.csv'):
+                df = pd.read_csv(planilha_mestre)
+            else:
+                df = pd.read_excel(planilha_mestre, header=None)
+            
+            for idx, row in df.iterrows():
+                val0 = str(row[0]).strip()
+                if val0.isdigit() and len(val0) >= 5:
+                    ug = val0
+                    nome = str(row[1]).strip()
+                    saldo_acervo = limpar_valor_excel(row[2]) if len(row) > 2 else 0.0
+                    saldo_dep = limpar_valor_excel(row[3]) if len(row) > 3 else 0.0
+                    
+                    dados_ug[ug] = {
+                        'nome': nome,
+                        'ex_acervo': saldo_acervo,
+                        'ex_dep': abs(saldo_dep), 
+                        'pdf_acervo': 0.0,
+                        'pdf_dep': 0.0,
+                        'original_pdf_acervo': 0.0, 
+                        'original_pdf_dep': 0.0,    
+                        'arquivos_acervo_somados': 0,
+                        'arquivos_dep_somados': 0,
+                        'detalhes_acervo': {}, 
+                        'detalhes_dep': {},
+                        'erro_original_acervo': False,
+                        'erro_original_dep': False
+                    }
+        except Exception as e:
+            st.error(f"❌ Erro ao ler a estrutura da planilha: {e}")
+            st.stop()
+
+        status_text.text("Processando e cruzando os documentos PDF...")
+        total_ugs = len(dados_ug)
 
         for i, (ug, info) in enumerate(dados_ug.items()):
+            # Busca Acervo
             padrao_acervo = re.compile(rf"^{ug}(a\d*)?\.pdf$")
-            padrao_dep = re.compile(rf"^{ug}d\d*\.pdf$")
-            
-            for nome_arquivo, arquivo_obj in pdfs_para_analise.items():
-                if padrao_acervo.match(nome_arquivo) and nome_arquivo not in info['detalhes_acervo']:
+            for nome_arquivo, arquivo_obj in pdfs.items():
+                if padrao_acervo.match(nome_arquivo):
                     info['arquivos_acervo_somados'] += 1
                     arquivo_obj.seek(0)
                     valor_extraido = extrair_valor_pdf(arquivo_obj.read(), texto_busca_acervo, texto_abrev_acervo, False)
                     info['pdf_acervo'] += valor_extraido
                     info['detalhes_acervo'][nome_arquivo] = valor_extraido
-                    info['original_pdf_acervo'] += valor_extraido
-                    info['erro_original_acervo'] = abs(info['pdf_acervo'] - info['ex_acervo']) > 0.05
-                    st.session_state.arquivos_lidos.add(nome_arquivo)
-                    adicionados_agora += 1
+            if info['arquivos_acervo_somados'] == 0: logs.append(f"⚠️ UG {ug}: Faltou o PDF do Acervo.")
 
-                elif padrao_dep.match(nome_arquivo) and nome_arquivo not in info['detalhes_dep']:
+            # Busca Depreciação
+            padrao_dep = re.compile(rf"^{ug}d\d*\.pdf$")
+            for nome_arquivo, arquivo_obj in pdfs.items():
+                if padrao_dep.match(nome_arquivo):
                     info['arquivos_dep_somados'] += 1
                     arquivo_obj.seek(0)
                     valor_extraido = extrair_valor_pdf(arquivo_obj.read(), texto_busca_dep, None, True)
                     info['pdf_dep'] += valor_extraido
                     info['detalhes_dep'][nome_arquivo] = valor_extraido
-                    info['original_pdf_dep'] += valor_extraido
-                    info['erro_original_dep'] = abs(info['pdf_dep'] - info['ex_dep']) > 0.05
-                    st.session_state.arquivos_lidos.add(nome_arquivo)
-                    adicionados_agora += 1
-                    
-            if not is_atualizacao:
-                if info['arquivos_acervo_somados'] == 0: logs.append(f"⚠️ UG {ug}: Relatório de Acervo encontra-se ausente.")
-                if info['arquivos_dep_somados'] == 0: logs.append(f"⚠️ UG {ug}: Relatório de Depreciação encontra-se ausente.")
+            if info['arquivos_dep_somados'] == 0: logs.append(f"⚠️ UG {ug}: Faltou o PDF de Depreciação.")
+            
+            # TIRAR A "FOTOGRAFIA" DOS VALORES ORIGINAIS ANTES DE QUALQUER EDIÇÃO
+            info['original_pdf_acervo'] = info['pdf_acervo']
+            info['original_pdf_dep'] = info['pdf_dep']
+            
+            # Marca internamente se a UG teve divergência na primeira leitura para libertar a edição
+            info['erro_original_acervo'] = abs(info['pdf_acervo'] - info['ex_acervo']) > 0.05
+            info['erro_original_dep'] = abs(info['pdf_dep'] - info['ex_dep']) > 0.05
                 
             progresso.progress((i + 1) / total_ugs)
-            
-        if is_atualizacao and adicionados_agora == 0:
-            st.warning("⚠️ Os relatórios anexados não correspondem a nenhuma Unidade Gestora da conciliação em andamento.")
-            progresso.empty()
-            status_text.empty()
-            st.stop()
         
         st.session_state.dados_ug = dados_ug
         st.session_state.logs = logs
         st.session_state.dados_processados = True
         progresso.empty()
-        
-        if is_atualizacao:
-            st.success(f"✔️ {adicionados_agora} novo(s) relatório(s) inserido(s) com sucesso na conciliação!")
-            st.rerun() 
-        else:
-            status_text.empty()
+        status_text.empty()
 
-
+# ==========================================
+# ETAPA 2: REVISÃO CIRÚRGICA E GERAÇÃO DE PDF
+# ==========================================
 if st.session_state.get('dados_processados'):
+    
+    # === AVISO NO TOPO COM CAIXA DE CONFIRMAÇÃO ===
+    if st.session_state.logs:
+        st.warning("⚠️ **ATENÇÃO: Existem relatórios (PDF) ausentes identificados!**")
+        with st.expander("Ver lista de Relatórios Ausentes", expanded=True):
+            for log in st.session_state.logs: st.write(log)
+            
+        prosseguir = st.checkbox("✅ Desejo prosseguir com a conciliação mesmo com ficheiros em falta")
+        if not prosseguir:
+            st.stop() # Pausa a renderização aqui até que o utilizador marque a caixa
+    # ==============================================
+
     st.markdown("---")
-    st.subheader("🔍 Painel de Conferência e Ajustes")
-    st.info("💡 **Atenção:** As secções abaixo apresentam as Unidades Gestoras analisadas. Valores com divergência exibem um campo aberto para ajuste manual do utilizador.")
+    st.subheader("🔍 Resultados da Análise & Revisão")
+    st.info("💡 **Ação Cirúrgica:** Apenas os campos com divergências permitem edição. As edições ficarão registadas no PDF Final.")
 
     dados_ug = st.session_state.dados_ug
     total_ex_acervo = total_ex_dep = total_pdf_acervo = total_pdf_dep = 0.0
@@ -318,6 +315,7 @@ if st.session_state.get('dados_processados'):
     pdf_out.add_page()
 
     for ug, info in dados_ug.items():
+        # LÓGICA DE ATUALIZAÇÃO EM TEMPO REAL
         if info['erro_original_acervo']:
             if info['detalhes_acervo']:
                 soma = 0.0
@@ -342,6 +340,7 @@ if st.session_state.get('dados_processados'):
                 key = f"edit_dp_{ug}_total"
                 if key in st.session_state: info['pdf_dep'] = st.session_state[key]
 
+        # Recálculo das diferenças finais
         dif_acervo_final = info['pdf_acervo'] - info['ex_acervo']
         dif_dep_final = info['pdf_dep'] - info['ex_dep']
         
@@ -350,36 +349,40 @@ if st.session_state.get('dados_processados'):
         total_ex_dep += info['ex_dep']
         total_pdf_dep += info['pdf_dep']
 
+        # VERIFICA SE HOUVE EDIÇÃO MANUAL
         editado_acervo = abs(info['pdf_acervo'] - info['original_pdf_acervo']) > 0.01
         editado_dep = abs(info['pdf_dep'] - info['original_pdf_dep']) > 0.01
 
+        # CRIAÇÃO DA INTERFACE DA UG
         mostrar_expander = info['erro_original_acervo'] or info['erro_original_dep'] or info['arquivos_acervo_somados'] > 1 or info['arquivos_dep_somados'] > 1
         
         if mostrar_expander:
             tem_erro_atual = abs(dif_acervo_final) > 0.05 or abs(dif_dep_final) > 0.05
             
             if tem_erro_atual:
-                titulo = f"⚠️ UG {ug}: Exige Verificação"
+                titulo = f"⚠️ UG {ug}: Divergências Encontradas"
             elif info['erro_original_acervo'] or info['erro_original_dep']:
-                titulo = f"✅ UG {ug}: Confirmado/Ajustado pelo Utilizador"
+                titulo = f"✅ UG {ug}: Corrigido Manualmente"
             else:
-                titulo = f"🔍 UG {ug}: Relatórios Agrupados com Sucesso"
+                titulo = f"🔍 Detalhes da UG {ug} (Relatórios Somados)"
                 
             with st.expander(titulo, expanded=tem_erro_atual):
                 df_view = pd.DataFrame([
-                    {"Conta": "Acervo", "Saldo Relatórios": info['pdf_acervo'], "Saldo Tesouro": info['ex_acervo'], "Diferença": dif_acervo_final},
-                    {"Conta": "Depreciação", "Saldo Relatórios": info['pdf_dep'], "Saldo Tesouro": info['ex_dep'], "Diferença": dif_dep_final}
+                    {"Conta": "Acervo", "Saldo relatório": info['pdf_acervo'], "Saldo SIAFI": info['ex_acervo'], "Diferença": dif_acervo_final},
+                    {"Conta": "Depreciação", "Saldo relatório": info['pdf_dep'], "Saldo SIAFI": info['ex_dep'], "Diferença": dif_dep_final}
                 ])
                 
+                # Formatador para o Dataframe do Streamlit usar . e , corretamente
                 st.dataframe(df_view.style.format({
-                    "Saldo Relatórios": lambda x: f"R$ {formatar_real(x)}", 
-                    "Saldo Tesouro": lambda x: f"R$ {formatar_real(x)}", 
+                    "Saldo relatório": lambda x: f"R$ {formatar_real(x)}", 
+                    "Saldo SIAFI": lambda x: f"R$ {formatar_real(x)}", 
                     "Diferença": lambda x: f"R$ {formatar_real(x)}"
                 }), use_container_width=True)
                 
+                # EDIÇÃO CIRÚRGICA
                 if info['erro_original_acervo'] or info['erro_original_dep']:
                     st.markdown("---")
-                    st.markdown("**✏️ Inserir Valor Correto:**")
+                    st.markdown("**✏️ Correção Direta por Relatório:**")
                     
                     if info['erro_original_acervo']:
                         st.markdown("**🔹 Acervo Bibliográfico**")
@@ -387,9 +390,9 @@ if st.session_state.get('dados_processados'):
                             cols = st.columns(2)
                             for idx, (arq, val) in enumerate(info['detalhes_acervo'].items()):
                                 with cols[idx % 2]:
-                                    st.number_input(f"Ajuste - Relatório {arq}", value=float(val), step=100.0, key=f"edit_ac_{ug}_{arq}")
+                                    st.number_input(f"Relatório: {arq}", value=float(val), step=100.0, key=f"edit_ac_{ug}_{arq}")
                         else:
-                            st.number_input(f"Ajuste - Acervo Total (Relatório Ausente)", value=float(info['pdf_acervo']), step=100.0, key=f"edit_ac_{ug}_total")
+                            st.number_input(f"Valor Total (Relatório Ausente)", value=float(info['pdf_acervo']), step=100.0, key=f"edit_ac_{ug}_total")
 
                     if info['erro_original_dep']:
                         st.markdown("**🔸 Depreciação Acumulada**")
@@ -397,10 +400,13 @@ if st.session_state.get('dados_processados'):
                             cols = st.columns(2)
                             for idx, (arq, val) in enumerate(info['detalhes_dep'].items()):
                                 with cols[idx % 2]:
-                                    st.number_input(f"Ajuste - Relatório {arq}", value=float(val), step=100.0, key=f"edit_dp_{ug}_{arq}")
+                                    st.number_input(f"Relatório: {arq}", value=float(val), step=100.0, key=f"edit_dp_{ug}_{arq}")
                         else:
-                            st.number_input(f"Ajuste - Depreciação Total (Relatório Ausente)", value=float(info['pdf_dep']), step=100.0, key=f"edit_dp_{ug}_total")
+                            st.number_input(f"Valor Total (Relatório Ausente)", value=float(info['pdf_dep']), step=100.0, key=f"edit_dp_{ug}_total")
 
+        # ==========================================
+        # ESCRITA NO PDF FINAL
+        # ==========================================
         texto_ug = f"Unidade Gestora: {ug} - {info['nome'][:50]}"
         avisos_soma = []
         if info['arquivos_acervo_somados'] > 1: avisos_soma.append(f"{info['arquivos_acervo_somados']} Acervos")
@@ -414,8 +420,8 @@ if st.session_state.get('dados_processados'):
         pdf_out.set_font("helvetica", 'B', 8)
         pdf_out.set_fill_color(220, 230, 241)
         pdf_out.cell(46, 7, "Conta", 1, fill=True)
-        pdf_out.cell(48, 7, "Saldo Relatórios", 1, fill=True, align='C') 
-        pdf_out.cell(48, 7, "Saldo Tesouro", 1, fill=True, align='C')      
+        pdf_out.cell(48, 7, "Saldo relatório", 1, fill=True, align='C') # Nova nomenclatura
+        pdf_out.cell(48, 7, "Saldo SIAFI", 1, fill=True, align='C')      # Nova nomenclatura
         pdf_out.cell(48, 7, "Diferença", 1, fill=True, align='C', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
         
         pdf_out.set_font("helvetica", '', 8)
@@ -423,6 +429,7 @@ if st.session_state.get('dados_processados'):
         str_pdf_acervo = f"R$ {formatar_real(info['pdf_acervo'])}" + (" *" if editado_acervo else "")
         str_pdf_dep = f"R$ {formatar_real(info['pdf_dep'])}" + (" *" if editado_dep else "")
 
+        # Linha Acervo
         pdf_out.cell(46, 7, "Acervo Bibliográfico", 1)
         pdf_out.cell(48, 7, str_pdf_acervo, 1, align='R')
         pdf_out.cell(48, 7, f"R$ {formatar_real(info['ex_acervo'])}", 1, align='R')
@@ -430,6 +437,7 @@ if st.session_state.get('dados_processados'):
         pdf_out.cell(48, 7, f"R$ {formatar_real(dif_acervo_final)}", 1, align='R', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
         pdf_out.set_text_color(0, 0, 0)
         
+        # Linha Depreciação
         pdf_out.cell(46, 7, "Depreciação Acumulada", 1)
         pdf_out.cell(48, 7, str_pdf_dep, 1, align='R')
         pdf_out.cell(48, 7, f"R$ {formatar_real(info['ex_dep'])}", 1, align='R')
@@ -437,33 +445,31 @@ if st.session_state.get('dados_processados'):
         pdf_out.cell(48, 7, f"R$ {formatar_real(dif_dep_final)}", 1, align='R', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
         pdf_out.set_text_color(0, 0, 0)
         
+        # LOG DE ALERTA NO PDF
         if editado_acervo or editado_dep:
             pdf_out.set_font("helvetica", 'I', 7)
             pdf_out.set_text_color(180, 0, 0) 
             if editado_acervo:
-                pdf_out.cell(0, 5, f"* NOTA DE AUDITORIA: Valor do Acervo ajustado pelo utilizador. (Original lido do PDF: R$ {formatar_real(info['original_pdf_acervo'])})", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+                pdf_out.cell(0, 5, f"* ALERTA: O valor do Acervo foi alterado manualmente pelo utilizador. (Valor original lido do PDF: R$ {formatar_real(info['original_pdf_acervo'])})", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
             if editado_dep:
-                pdf_out.cell(0, 5, f"* NOTA DE AUDITORIA: Valor da Depreciação ajustado pelo utilizador. (Original lido do PDF: R$ {formatar_real(info['original_pdf_dep'])})", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+                pdf_out.cell(0, 5, f"* ALERTA: O valor da Depreciação foi alterado manualmente pelo utilizador. (Valor original lido do PDF: R$ {formatar_real(info['original_pdf_dep'])})", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
             pdf_out.set_text_color(0, 0, 0)
         
         pdf_out.ln(5)
 
+    # Exibição do Resumo Geral
     dif_total_acervo = total_pdf_acervo - total_ex_acervo
     dif_total_dep = total_pdf_dep - total_ex_dep
     
-    st.markdown("### Resumo Global (Atualizado Constantemente)")
+    st.markdown("### Resumo Geral da Conciliação (Atualizado em tempo real)")
     c1, c2, c3 = st.columns(3)
-    c1.metric("Divergência Total (Acervo)", f"R$ {formatar_real(dif_total_acervo)}", delta_color="inverse" if abs(dif_total_acervo) > 0.05 else "normal")
-    c2.metric("Divergência Total (Depreciação)", f"R$ {formatar_real(dif_total_dep)}", delta_color="inverse" if abs(dif_total_dep) > 0.05 else "normal")
-    
-    if st.session_state.logs:
-        with st.expander("⚠️ Alertas de Relatórios Incompletos", expanded=False):
-            for log in st.session_state.logs: st.write(log)
+    c1.metric("Diferença Total (Acervo)", f"R$ {formatar_real(dif_total_acervo)}", delta_color="inverse" if abs(dif_total_acervo) > 0.05 else "normal")
+    c2.metric("Diferença Total (Depreciação)", f"R$ {formatar_real(dif_total_dep)}", delta_color="inverse" if abs(dif_total_dep) > 0.05 else "normal")
     
     try:
         pdf_bytes = bytes(pdf_out.output())
         st.download_button(
-            label="📄 BAIXAR RELATÓRIO FINAL E COMPLETO (.PDF)", 
+            label="📄 BAIXAR RELATÓRIO FINAL (.PDF)", 
             data=pdf_bytes, 
             file_name=f"RELATORIO_ACERVO_BIBLIOGRAFICO_{mes_selecionado}_{ano_selecionado}.pdf", 
             mime="application/pdf", 
@@ -471,4 +477,4 @@ if st.session_state.get('dados_processados'):
             use_container_width=True
         )
     except Exception as e:
-        st.error(f"Não foi possível concluir a emissão do documento: {e}")
+        st.error(f"Erro ao gerar o download: {e}")
