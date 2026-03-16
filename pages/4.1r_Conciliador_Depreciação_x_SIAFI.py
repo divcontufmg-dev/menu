@@ -6,9 +6,10 @@ from fpdf import FPDF, XPos, YPos
 import io
 import os
 import openpyxl
+import copy
 
 # ==========================================
-# CONFIGURAÇÃO INICIAL
+# CONFIGURAÇÃO INICIAL E MEMÓRIA
 # ==========================================
 st.set_page_config(
     page_title="Conciliador de Depreciação",
@@ -16,7 +17,15 @@ st.set_page_config(
     layout="wide"
 )
 
-# Oculta elementos técnicos da plataforma e o menu lateral padrão para deixar a interface mais limpa
+# Inicializa a memória do Streamlit
+if 'dados_processados' not in st.session_state:
+    st.session_state.dados_processados = False
+if 'dados_ug' not in st.session_state:
+    st.session_state.dados_ug = {}
+if 'matriz_erro' not in st.session_state:
+    st.session_state.matriz_erro = False
+
+# Oculta elementos técnicos da plataforma e o menu lateral padrão
 hide_streamlit_style = """
             <style>
             #MainMenu {visibility: hidden;}
@@ -134,13 +143,13 @@ def carregar_matriz():
 class PDFRelatorio(FPDF):
     def header(self):
         self.set_font('Helvetica', 'B', 12)
-        self.cell(0, 10, 'Relatório de Conciliação - Depreciação Acumulada', 0, 1, 'C')
+        self.cell(0, 10, 'Relatório de Conciliação - Depreciação Acumulada', align='C', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
         self.ln(5)
         
     def footer(self):
         self.set_y(-15)
         self.set_font('Helvetica', 'I', 8)
-        self.cell(0, 10, f'Página {self.page_no()}', 0, 0, 'C')
+        self.cell(0, 10, f'Página {self.page_no()}', align='C')
 
 # ==========================================
 # INTERFACE DO USUÁRIO
@@ -151,26 +160,24 @@ meses_opcoes = ["JAN", "FEV", "MAR", "ABR", "MAI", "JUN", "JUL", "AGO", "SET", "
 mes_selecionado = st.selectbox("Selecione o Mês de Referência:", meses_opcoes)
 idx_mes = meses_opcoes.index(mes_selecionado)
 
-st.markdown(f"**Mês Base selecionado:** {mes_selecionado}")
-
 with st.expander("📘 GUIA DE USO (Clique para abrir)", expanded=False):
     st.markdown("📌 **Orientações de Uso**")
     st.markdown("""
     1. **Selecione o Mês** que deseja conferir acima.
     2. Anexe a **Planilha do tesouro e os relatórios** todos juntos no mesmo local abaixo.
-    3. Clique em "Gerar Relatório".
+    3. O sistema fará a leitura inicial. **Poderá corrigir valores divergentes manualmente e as edições serão registadas no PDF!**
     """)
 
 uploaded_files = st.file_uploader(
-    "Arraste ou selecione a Planilha e os Relatórios de uma só vez", 
+    "📂 Arraste ou selecione a Planilha e os Relatórios de uma só vez", 
     type=['pdf', 'xlsx'], 
     accept_multiple_files=True
 )
 
 # ==========================================
-# EXECUÇÃO DO SISTEMA
+# ETAPA 1: PROCESSAMENTO DE DADOS
 # ==========================================
-if st.button("Gerar Relatório de Conciliação", type="primary"):
+if st.button("🚀 Gerar Relatório de Conciliação", type="primary", use_container_width=True):
     if not uploaded_files:
         st.warning("⚠️ Por favor, insira seus arquivos para que possamos realizar a conciliação.")
     else:
@@ -186,191 +193,322 @@ if st.button("Gerar Relatório de Conciliação", type="primary"):
         with st.spinner("Analisando seus documentos e cruzando os valores..."):
             try:
                 dicionario_matriz = carregar_matriz()
+                if not dicionario_matriz:
+                    st.error("❌ Matriz não encontrada ou vazia. Verifique o arquivo MATRIZ.xlsx.")
+                    st.stop()
 
                 dados_pdfs_extraidos = {}
                 for f in pdfs:
                     uid = extrair_id_unidade(f.name)
-                    if uid:
-                        dados_pdfs_extraidos[uid] = processar_pdf(f, idx_mes)
+                    if uid: dados_pdfs_extraidos[uid] = processar_pdf(f, idx_mes)
 
                 wb_alvo = openpyxl.load_workbook(arquivo_alvo, data_only=True)
-                
-                pdf_out = PDFRelatorio()
-                pdf_out.set_auto_page_break(auto=True, margin=15)
-                pdf_out.add_page()
-                lista_resumo = []
+                abas = [s for s in wb_alvo.sheetnames if s != "MATRIZ"]
                 
                 progresso = st.progress(0)
                 status_box = st.empty()
                 
-                abas = [s for s in wb_alvo.sheetnames if s != "MATRIZ"]
-                total_abas = len(abas)
+                dados_ug = {}
 
                 for idx, sheet_name in enumerate(abas):
                     ws = wb_alvo[sheet_name]
                     uid = extrair_id_unidade(sheet_name)
-                    
-                    status_box.text(f"Conferindo unidade: {sheet_name}...")
+                    status_box.text(f"Lendo e analisando dados da Unidade Gestora: {sheet_name}...")
                     
                     d_excel = {}
-                    
                     for row in ws.iter_rows(values_only=True):
                         if not row or not row[0]: continue
-                        
                         conta_raw = str(row[0]).strip()
-                        
                         if conta_raw.startswith("12") and conta_raw.replace('.', '').isdigit():
-                            if conta_raw == "123110402":
-                                continue
-                                
+                            if conta_raw == "123110402": continue
                             nat_desp = dicionario_matriz.get(conta_raw)
-                            
                             if nat_desp:
                                 grupo = extrair_codigo_grupo(nat_desp)
                                 if grupo is not None:
                                     valid_vals = [v for v in row if v is not None and str(v).strip() != ""]
                                     if len(valid_vals) >= 2:
-                                        saldo_raw = valid_vals[-1]
-                                        movim_raw = valid_vals[-2]
+                                        saldo_raw, movim_raw = valid_vals[-1], valid_vals[-2]
                                     elif len(valid_vals) == 1:
-                                        saldo_raw = valid_vals[-1]
-                                        movim_raw = 0.0
+                                        saldo_raw, movim_raw = valid_vals[-1], 0.0
                                     else:
                                         saldo_raw, movim_raw = 0.0, 0.0
-                                                
+                                            
                                     val_saldo = converter_valor_excel(saldo_raw)
                                     val_mov = converter_valor_excel(movim_raw)
                                     
-                                    if grupo not in d_excel:
-                                        d_excel[grupo] = {'saldo': 0.0, 'movimento': 0.0}
-                                        
+                                    if grupo not in d_excel: d_excel[grupo] = {'saldo': 0.0, 'movimento': 0.0}
                                     d_excel[grupo]['saldo'] += val_saldo
                                     d_excel[grupo]['movimento'] += val_mov
 
-                    if uid in dados_pdfs_extraidos:
-                        d_pdf = dados_pdfs_extraidos[uid]
+                    # Prepara a comparação com o PDF
+                    d_pdf_raw = dados_pdfs_extraidos.get(uid, {})
+                    grupos_combinados = sorted(list(set(d_pdf_raw.keys()) | set(d_excel.keys())))
+                    
+                    d_pdf = {}
+                    grupos_com_erro = {} # Agora é um dicionário inteligente
+                    erro_original = False
+                    
+                    for g in grupos_combinados:
+                        # Extrai e converte para o sinal correto para a conciliação (inversão)
+                        vp_saldo = round(-1 * d_pdf_raw.get(g, {}).get('saldo', 0.0), 2)
+                        vp_mov = round(-1 * d_pdf_raw.get(g, {}).get('movimento', 0.0), 2)
                         
-                        grupos = sorted(list(set(d_pdf.keys()) | set(d_excel.keys())))
-                        divergencias = []
-                        soma_pdf_saldo, soma_excel_saldo = 0.0, 0.0
-                        soma_pdf_mov, soma_excel_mov = 0.0, 0.0
+                        ve_saldo = round(d_excel.get(g, {}).get('saldo', 0.0), 2)
+                        ve_mov = round(d_excel.get(g, {}).get('movimento', 0.0), 2)
                         
-                        for g in grupos:
-                            vp_saldo = round(-1 * d_pdf.get(g, {}).get('saldo', 0.0), 2)
-                            ve_saldo = round(d_excel.get(g, {}).get('saldo', 0.0), 2)
-                            
-                            vp_mov = round(-1 * d_pdf.get(g, {}).get('movimento', 0.0), 2)
-                            ve_mov = round(d_excel.get(g, {}).get('movimento', 0.0), 2)
-                            
-                            soma_pdf_saldo += vp_saldo
-                            soma_excel_saldo += ve_saldo
-                            soma_pdf_mov += vp_mov
-                            soma_excel_mov += ve_mov
-                            
-                            dif_saldo = round(vp_saldo - ve_saldo, 2)
-                            if abs(dif_saldo) > 0.00: 
-                                divergencias.append({'grupo': g, 'tipo': 'Saldo Acumulado', 'pdf': vp_saldo, 'excel': ve_saldo, 'diff': dif_saldo})
-                                
-                            dif_mov = round(vp_mov - ve_mov, 2)
-                            if abs(dif_mov) > 0.00: 
-                                divergencias.append({'grupo': g, 'tipo': 'Mês Corrente', 'pdf': vp_mov, 'excel': ve_mov, 'diff': dif_mov})
+                        d_pdf[g] = {'saldo': vp_saldo, 'movimento': vp_mov}
+                        
+                        err_saldo = abs(vp_saldo - ve_saldo) > 0.00
+                        err_mov = abs(vp_mov - ve_mov) > 0.00
+                        
+                        # Regista separadamente qual é a métrica com divergência
+                        if err_saldo or err_mov:
+                            erro_original = True
+                            grupos_com_erro[g] = {'saldo': err_saldo, 'movimento': err_mov}
 
-                        if pdf_out.get_y() > 240: pdf_out.add_page()
-                        
-                        pdf_out.set_font("helvetica", 'B', 10)
-                        pdf_out.set_fill_color(240, 240, 240)
-                        pdf_out.cell(0, 8, f"Unidade Gestora: {sheet_name} (ID: {uid})", 1, fill=True, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-                        pdf_out.ln(2)
-                        
-                        pdf_out.set_font("helvetica", 'B', 9)
-                        pdf_out.set_fill_color(220, 230, 241)
-                        pdf_out.cell(48, 7, "Métrica", 1, fill=True, align='C')
-                        pdf_out.cell(48, 7, "Total Relatório", 1, fill=True, align='C')
-                        pdf_out.cell(48, 7, "Total Planilha", 1, fill=True, align='C')
-                        pdf_out.cell(46, 7, "Diferença", 1, fill=True, align='C', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-                        
-                        pdf_out.set_font("helvetica", '', 9)
-                        pdf_out.cell(48, 7, "Saldo Acumulado", 1)
-                        pdf_out.cell(48, 7, f"R$ {formatar_real(soma_pdf_saldo)}", 1, align='R')
-                        pdf_out.cell(48, 7, f"R$ {formatar_real(soma_excel_saldo)}", 1, align='R')
-                        dif_total_saldo = round(soma_pdf_saldo - soma_excel_saldo, 2)
-                        if abs(dif_total_saldo) > 0.00: pdf_out.set_text_color(200, 0, 0)
-                        pdf_out.cell(46, 7, f"R$ {formatar_real(dif_total_saldo)}", 1, align='R', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-                        pdf_out.set_text_color(0, 0, 0)
-                        
-                        pdf_out.cell(48, 7, f"Mês Corrente ({mes_selecionado})", 1)
-                        pdf_out.cell(48, 7, f"R$ {formatar_real(soma_pdf_mov)}", 1, align='R')
-                        pdf_out.cell(48, 7, f"R$ {formatar_real(soma_excel_mov)}", 1, align='R')
-                        dif_total_mov = round(soma_pdf_mov - soma_excel_mov, 2)
-                        if abs(dif_total_mov) > 0.00: pdf_out.set_text_color(200, 0, 0)
-                        pdf_out.cell(46, 7, f"R$ {formatar_real(dif_total_mov)}", 1, align='R', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-                        pdf_out.set_text_color(0, 0, 0)
-                        
-                        pdf_out.ln(3)
-                        
-                        status_str = "✅ Conciliado"
-                        if not divergencias:
-                            pdf_out.set_fill_color(220, 255, 220)
-                            pdf_out.set_font("helvetica", 'B', 9)
-                            pdf_out.cell(0, 8, "CONCILIADO - SEM DIVERGÊNCIAS", 1, fill=True, align='C', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-                        else:
-                            status_str = f"❌ Divergência(s)"
-                            pdf_out.set_fill_color(255, 220, 220)
-                            pdf_out.set_font("helvetica", 'B', 9)
-                            pdf_out.cell(0, 8, "DIVERGÊNCIAS ENCONTRADAS:", 1, fill=True, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-                            
-                            pdf_out.set_fill_color(250, 250, 250)
-                            pdf_out.set_font("helvetica", 'B', 8)
-                            pdf_out.cell(15, 6, "Grupo", 1, fill=True, align='C')
-                            pdf_out.cell(35, 6, "Tipo", 1, fill=True, align='C')
-                            pdf_out.cell(46, 6, "Valor Relatório", 1, fill=True, align='C')
-                            pdf_out.cell(46, 6, "Valor Planilha", 1, fill=True, align='C')
-                            pdf_out.cell(48, 6, "Diferença", 1, fill=True, align='C', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-                            
-                            pdf_out.set_font("helvetica", '', 8)
-                            for d in divergencias:
-                                pdf_out.cell(15, 6, str(d['grupo']), 1, align='C')
-                                pdf_out.cell(35, 6, d['tipo'], 1, align='C')
-                                pdf_out.cell(46, 6, f"R$ {formatar_real(d['pdf'])}", 1, align='R')
-                                pdf_out.cell(46, 6, f"R$ {formatar_real(d['excel'])}", 1, align='R')
-                                pdf_out.set_text_color(200, 0, 0)
-                                pdf_out.cell(48, 6, f"R$ {formatar_real(d['diff'])}", 1, align='R', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-                                pdf_out.set_text_color(0, 0, 0)
-                                
-                        pdf_out.ln(5)
-                        pdf_out.cell(0, 0, "", "B", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-                        pdf_out.ln(5)
-                        
-                        lista_resumo.append({
-                            "Unidade / Aba": sheet_name,
-                            "Status": status_str,
-                            "Dif. Saldo Total": f"R$ {formatar_real(dif_total_saldo)}",
-                            "Dif. Mês Corrente": f"R$ {formatar_real(dif_total_mov)}"
-                        })
-                    else:
-                        lista_resumo.append({
-                            "Unidade / Aba": sheet_name,
-                            "Status": "⚠️ Relatório correspondente não anexado",
-                            "Dif. Saldo Total": "-",
-                            "Dif. Mês Corrente": "-"
-                        })
+                    dados_ug[sheet_name] = {
+                        'uid': uid,
+                        'd_excel': d_excel,
+                        'd_pdf': d_pdf,
+                        'd_pdf_orig': copy.deepcopy(d_pdf), # Memória fotográfica
+                        'tem_pdf': uid in dados_pdfs_extraidos,
+                        'erro_original': erro_original,
+                        'grupos_com_erro': grupos_com_erro
+                    }
 
-                    progresso.progress((idx + 1) / total_abas)
+                    progresso.progress((idx + 1) / len(abas))
 
+                st.session_state.dados_ug = dados_ug
+                st.session_state.dados_processados = True
                 progresso.empty()
-                status_box.success("Conferência finalizada com sucesso! Verifique os resultados na tabela e baixe seu relatório final.")
-                
-                st.markdown("### Resumo Geral da Conciliação")
-                st.dataframe(pd.DataFrame(lista_resumo), use_container_width=True)
-                
-                pdf_bytes = bytes(pdf_out.output()) 
-                st.download_button(
-                    label="📄 Fazer Download do Relatório Completo (PDF)",
-                    data=pdf_bytes,
-                    file_name="Relatorio_Conciliacao_Liquida.pdf",
-                    mime="application/pdf",
-                    type="primary"
-                )
+                status_box.empty()
                 
             except Exception as e:
-                st.error(f"Não foi possível processar seus documentos no momento. Verifique se os arquivos estão corretos. (Detalhe: {e})")
+                st.error(f"Não foi possível processar seus documentos. Verifique os ficheiros. (Detalhe: {e})")
+
+# ==========================================
+# ETAPA 2: REVISÃO CIRÚRGICA E PDF FINAL
+# ==========================================
+if st.session_state.get('dados_processados'):
+    st.markdown("---")
+    st.subheader("🔍 Resultados da Conciliação & Revisão")
+    st.info("💡 **Ação Cirúrgica:** Apenas os dados com divergências exibem campos de edição. O que já está correto fica protegido.")
+
+    pdf_out = PDFRelatorio()
+    pdf_out.set_auto_page_break(auto=True, margin=15)
+    pdf_out.add_page()
+    
+    lista_resumo = []
+    dados_ug = st.session_state.dados_ug
+
+    for sheet_name, info in dados_ug.items():
+        uid = info['uid']
+        d_excel = info['d_excel']
+        d_pdf = info['d_pdf']
+        d_pdf_orig = info['d_pdf_orig']
+        
+        # 1. ATUALIZA VALORES EM TEMPO REAL
+        if info['erro_original'] or not info['tem_pdf']:
+            for g in info['grupos_com_erro'].keys():
+                k_saldo = f"ed_s_{sheet_name}_{g}"
+                k_mov = f"ed_m_{sheet_name}_{g}"
+                if k_saldo in st.session_state: d_pdf[g]['saldo'] = st.session_state[k_saldo]
+                if k_mov in st.session_state: d_pdf[g]['movimento'] = st.session_state[k_mov]
+
+        # 2. RECÁLCULO
+        divergencias = []
+        alertas_auditoria = []
+        soma_pdf_s = soma_excel_s = soma_pdf_m = soma_excel_m = 0.0
+        
+        grupos = sorted(list(d_pdf.keys()))
+        for g in grupos:
+            vp_s = d_pdf[g]['saldo']
+            ve_s = d_excel.get(g, {}).get('saldo', 0.0)
+            vp_m = d_pdf[g]['movimento']
+            ve_m = d_excel.get(g, {}).get('movimento', 0.0)
+            
+            soma_pdf_s += vp_s
+            soma_excel_s += ve_s
+            soma_pdf_m += vp_m
+            soma_excel_m += ve_m
+            
+            dif_s = round(vp_s - ve_s, 2)
+            if abs(dif_s) > 0.00:
+                divergencias.append({'grupo': g, 'tipo': 'Saldo Acumulado', 'pdf': vp_s, 'excel': ve_s, 'diff': dif_s})
+            
+            dif_m = round(vp_m - ve_m, 2)
+            if abs(dif_m) > 0.00:
+                divergencias.append({'grupo': g, 'tipo': 'Mês Corrente', 'pdf': vp_m, 'excel': ve_m, 'diff': dif_m})
+            
+            # Auditoria por grupo
+            if abs(vp_s - d_pdf_orig[g]['saldo']) > 0.01:
+                alertas_auditoria.append(f"* ALERTA: O Saldo Acumulado do Grupo {g} foi alterado manualmente pelo utilizador. (Original lido do PDF: R$ {formatar_real(d_pdf_orig[g]['saldo'])})")
+            if abs(vp_m - d_pdf_orig[g]['movimento']) > 0.01:
+                alertas_auditoria.append(f"* ALERTA: O Mês Corrente do Grupo {g} foi alterado manualmente pelo utilizador. (Original lido do PDF: R$ {formatar_real(d_pdf_orig[g]['movimento'])})")
+
+        dif_total_saldo = round(soma_pdf_s - soma_excel_s, 2)
+        dif_total_mov = round(soma_pdf_m - soma_excel_m, 2)
+        tem_erro_atual = len(divergencias) > 0
+
+        # 3. EXIBIÇÃO EM TELA
+        with st.container():
+            st.markdown(f"### 🏢 Unidade Gestora: {sheet_name} (ID: {uid})")
+            
+            col1, col2 = st.columns(2)
+            col1.metric("Diferença Saldo Acumulado", f"R$ {formatar_real(dif_total_saldo)}", delta_color="inverse" if abs(dif_total_saldo) > 0.05 else "normal")
+            col2.metric("Diferença Mês Corrente", f"R$ {formatar_real(dif_total_mov)}", delta_color="inverse" if abs(dif_total_mov) > 0.05 else "normal")
+            
+            titulo_expander = "⚠️ Grupos com Divergência" if tem_erro_atual else ("✅ Corrigido Manualmente" if info['erro_original'] else "✅ Conciliado")
+            if not info['tem_pdf']: titulo_expander += " (Relatório Ausente)"
+            
+            with st.expander(titulo_expander, expanded=tem_erro_atual or not info['tem_pdf']):
+                if divergencias:
+                    df_view = pd.DataFrame([{
+                        'Grupo': d['grupo'],
+                        'Tipo': d['tipo'],
+                        'Valor Relatório': d['pdf'],
+                        'Valor Planilha': d['excel'],
+                        'Diferença': d['diff']
+                    } for d in divergencias])
+                    
+                    st.dataframe(df_view.style.format({
+                        "Valor Relatório": lambda x: f"R$ {formatar_real(x)}",
+                        "Valor Planilha": lambda x: f"R$ {formatar_real(x)}",
+                        "Diferença": lambda x: f"R$ {formatar_real(x)}"
+                    }), use_container_width=True)
+                else:
+                    st.success("Nenhuma divergência nesta unidade.")
+
+                # Caixas de Edição (Aparecem apenas nos grupos com erro na extração original ou relatórios ausentes)
+                if info['grupos_com_erro']:
+                    st.markdown("---")
+                    st.markdown("**✏️ Correção Direta por Grupo Divergente:**")
+                    for g, erros in info['grupos_com_erro'].items():
+                        st.markdown(f"**🔹 Grupo {g}**")
+                        c1, c2 = st.columns(2)
+                        
+                        with c1:
+                            if erros['saldo'] or not info['tem_pdf']:
+                                st.number_input(f"Saldo Acumulado (Relatório)", value=float(d_pdf[g]['saldo']), step=100.0, key=f"ed_s_{sheet_name}_{g}")
+                            else:
+                                st.text_input(f"Saldo Acumulado (Correto)", value=f"R$ {formatar_real(d_pdf[g]['saldo'])}", disabled=True, key=f"dis_s_{sheet_name}_{g}")
+                        
+                        with c2:
+                            if erros['movimento'] or not info['tem_pdf']:
+                                st.number_input(f"Mês Corrente (Relatório)", value=float(d_pdf[g]['movimento']), step=100.0, key=f"ed_m_{sheet_name}_{g}")
+                            else:
+                                st.text_input(f"Mês Corrente (Correto)", value=f"R$ {formatar_real(d_pdf[g]['movimento'])}", disabled=True, key=f"dis_m_{sheet_name}_{g}")
+
+        # 4. ESCRITA NO PDF FINAL
+        if pdf_out.get_y() > 240: pdf_out.add_page()
+        
+        pdf_out.set_font("helvetica", 'B', 10)
+        pdf_out.set_fill_color(240, 240, 240)
+        pdf_out.cell(0, 8, f"Unidade Gestora: {sheet_name} (ID: {uid})", 1, fill=True, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        pdf_out.ln(2)
+        
+        pdf_out.set_font("helvetica", 'B', 9)
+        pdf_out.set_fill_color(220, 230, 241)
+        pdf_out.cell(48, 7, "Métrica", 1, fill=True, align='C')
+        pdf_out.cell(48, 7, "Total Relatório", 1, fill=True, align='C')
+        pdf_out.cell(48, 7, "Total Planilha", 1, fill=True, align='C')
+        pdf_out.cell(46, 7, "Diferença", 1, fill=True, align='C', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        
+        pdf_out.set_font("helvetica", '', 9)
+        
+        edit_geral_saldo = any(abs(d_pdf[g]['saldo'] - d_pdf_orig[g]['saldo']) > 0.01 for g in grupos)
+        edit_geral_mov = any(abs(d_pdf[g]['movimento'] - d_pdf_orig[g]['movimento']) > 0.01 for g in grupos)
+        
+        str_pdf_s = f"R$ {formatar_real(soma_pdf_s)}" + (" *" if edit_geral_saldo else "")
+        str_pdf_m = f"R$ {formatar_real(soma_pdf_m)}" + (" *" if edit_geral_mov else "")
+
+        # Resumo Métrica Saldo
+        pdf_out.cell(48, 7, "Saldo Acumulado", 1)
+        pdf_out.cell(48, 7, str_pdf_s, 1, align='R')
+        pdf_out.cell(48, 7, f"R$ {formatar_real(soma_excel_s)}", 1, align='R')
+        if abs(dif_total_saldo) > 0.00: pdf_out.set_text_color(200, 0, 0)
+        pdf_out.cell(46, 7, f"R$ {formatar_real(dif_total_saldo)}", 1, align='R', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        pdf_out.set_text_color(0, 0, 0)
+        
+        # Resumo Métrica Movimento
+        pdf_out.cell(48, 7, f"Mês Corrente ({mes_selecionado})", 1)
+        pdf_out.cell(48, 7, str_pdf_m, 1, align='R')
+        pdf_out.cell(48, 7, f"R$ {formatar_real(soma_excel_m)}", 1, align='R')
+        if abs(dif_total_mov) > 0.00: pdf_out.set_text_color(200, 0, 0)
+        pdf_out.cell(46, 7, f"R$ {formatar_real(dif_total_mov)}", 1, align='R', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        pdf_out.set_text_color(0, 0, 0)
+        
+        pdf_out.ln(3)
+        
+        status_str = "✅ Conciliado"
+        if not divergencias:
+            pdf_out.set_fill_color(220, 255, 220)
+            pdf_out.set_font("helvetica", 'B', 9)
+            pdf_out.cell(0, 8, "CONCILIADO - SEM DIVERGÊNCIAS", 1, fill=True, align='C', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        else:
+            status_str = f"❌ Divergência(s)"
+            pdf_out.set_fill_color(255, 220, 220)
+            pdf_out.set_font("helvetica", 'B', 9)
+            pdf_out.cell(0, 8, "DIVERGÊNCIAS ENCONTRADAS:", 1, fill=True, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+            
+            pdf_out.set_fill_color(250, 250, 250)
+            pdf_out.set_font("helvetica", 'B', 8)
+            pdf_out.cell(15, 6, "Grupo", 1, fill=True, align='C')
+            pdf_out.cell(35, 6, "Tipo", 1, fill=True, align='C')
+            pdf_out.cell(46, 6, "Valor Relatório", 1, fill=True, align='C')
+            pdf_out.cell(46, 6, "Valor Planilha", 1, fill=True, align='C')
+            pdf_out.cell(48, 6, "Diferença", 1, fill=True, align='C', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+            
+            pdf_out.set_font("helvetica", '', 8)
+            for d in divergencias:
+                g = d['grupo']
+                if d['tipo'] == 'Saldo Acumulado': is_edit = abs(d_pdf[g]['saldo'] - d_pdf_orig[g]['saldo']) > 0.01
+                else: is_edit = abs(d_pdf[g]['movimento'] - d_pdf_orig[g]['movimento']) > 0.01
+                    
+                val_pdf_str = f"R$ {formatar_real(d['pdf'])}" + (" *" if is_edit else "")
+                
+                pdf_out.cell(15, 6, str(d['grupo']), 1, align='C')
+                pdf_out.cell(35, 6, d['tipo'], 1, align='C')
+                pdf_out.cell(46, 6, val_pdf_str, 1, align='R')
+                pdf_out.cell(46, 6, f"R$ {formatar_real(d['excel'])}", 1, align='R')
+                pdf_out.set_text_color(200, 0, 0)
+                pdf_out.cell(48, 6, f"R$ {formatar_real(d['diff'])}", 1, align='R', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+                pdf_out.set_text_color(0, 0, 0)
+        
+        # LOGS DE AUDITORIA NO PDF
+        if alertas_auditoria:
+            pdf_out.set_font("helvetica", 'I', 7)
+            pdf_out.set_text_color(180, 0, 0)
+            for alerta in alertas_auditoria:
+                pdf_out.cell(0, 5, alerta, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+            pdf_out.set_text_color(0, 0, 0)
+                
+        pdf_out.ln(5)
+        pdf_out.cell(0, 0, "", "B", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        pdf_out.ln(5)
+        
+        if not info['tem_pdf']: status_str = "⚠️ Relatório ausente"
+            
+        lista_resumo.append({
+            "Unidade / Aba": sheet_name,
+            "Status": status_str,
+            "Dif. Saldo Total": f"R$ {formatar_real(dif_total_saldo)}",
+            "Dif. Mês Corrente": f"R$ {formatar_real(dif_total_mov)}"
+        })
+
+    # Resumo Final e Download
+    st.markdown("### Resumo Geral da Conciliação (Atualizado em Tempo Real)")
+    st.dataframe(pd.DataFrame(lista_resumo), use_container_width=True)
+    
+    try:
+        pdf_bytes = bytes(pdf_out.output()) 
+        st.download_button(
+            label="📄 Fazer Download do Relatório Completo (PDF)",
+            data=pdf_bytes,
+            file_name="Relatorio_Conciliacao_Depreciacao.pdf",
+            mime="application/pdf",
+            type="primary",
+            use_container_width=True
+        )
+    except Exception as e:
+        st.error(f"Erro ao gerar o PDF para download. (Detalhe: {e})")
