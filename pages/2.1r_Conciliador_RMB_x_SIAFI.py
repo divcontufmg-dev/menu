@@ -11,13 +11,21 @@ from PIL import Image
 from pytesseract import Output
 
 # ==========================================
-# CONFIGURAÇÃO INICIAL
+# CONFIGURAÇÃO INICIAL E MEMÓRIA
 # ==========================================
 st.set_page_config(
     page_title="Conciliação Patrimonial: RMB x SIAFI",
     page_icon="📊",
     layout="wide"
 )
+
+# Inicializa a memória do Streamlit
+if 'dados_processados' not in st.session_state:
+    st.session_state.dados_processados = False
+if 'dados_ug' not in st.session_state:
+    st.session_state.dados_ug = {}
+if 'avisos_usuario' not in st.session_state:
+    st.session_state.avisos_usuario = []
 
 # Ocultar marcas do Streamlit e o menu lateral automático para um visual mais limpo
 hide_streamlit_style = """
@@ -82,7 +90,8 @@ def get_chave_vinculo(conta, dict_matriz):
     return None
 
 def formatar_real(valor):
-    return f"{valor:,.2f}".replace(',', '_').replace('.', ',').replace('_', '.')
+    sinal = "-" if valor < -0.001 else ""
+    return f"{sinal}{abs(valor):,.2f}".replace(',', '_').replace('.', ',').replace('_', '.')
 
 class PDF_Report(FPDF):
     def header(self):
@@ -102,7 +111,7 @@ with st.expander("📘 GUIA DE USO (Clique para abrir)", expanded=False):
     st.markdown("📌 **Orientações de Uso**")
     st.markdown("""
     1. Anexe a **Planilha SIAFI** e todos os **Relatórios PDF (RMB)** correspondentes na área abaixo.
-    2. Clique em "Gerar Relatório de Conciliação" e aguarde a análise.
+    2. O sistema somará tudo. **Poderá corrigir valores divergentes. As edições serão registadas no PDF!**
     """)
 
 # Área de Upload Unificada
@@ -113,11 +122,10 @@ arquivos_enviados = st.file_uploader(
 )
 
 # ==========================================
-# EXECUÇÃO DO SISTEMA
+# ETAPA 1: PROCESSAMENTO DE DADOS
 # ==========================================
 if st.button("🚀 Gerar Relatório de Conciliação", type="primary", use_container_width=True):
     
-    # Validação inicial dos arquivos necessários
     if not os.path.exists("MATRIZ.xlsx"):
         st.error("❌ O arquivo de configuração interno ('MATRIZ.xlsx') não foi encontrado. Contate o suporte técnico.")
         st.stop()
@@ -126,7 +134,6 @@ if st.button("🚀 Gerar Relatório de Conciliação", type="primary", use_conta
         st.warning("⚠️ Por favor, insira seus arquivos para que possamos realizar a conciliação.")
         st.stop()
 
-    # Separa os arquivos enviados entre a planilha principal e os PDFs
     uploaded_siafi = None
     uploaded_pdfs = []
     
@@ -139,7 +146,6 @@ if st.button("🚀 Gerar Relatório de Conciliação", type="primary", use_conta
         elif arquivo.name.lower().endswith('.pdf'):
             uploaded_pdfs.append(arquivo)
 
-    # Verificações de envio
     if not uploaded_siafi:
         st.error("❌ A Planilha SIAFI (.xlsx) não foi encontrada entre os arquivos enviados.")
         st.stop()
@@ -151,7 +157,6 @@ if st.button("🚀 Gerar Relatório de Conciliação", type="primary", use_conta
     status_text = st.empty()
     status_text.text("Preparando ambiente de conciliação...")
 
-    # 1. Carregar a Matriz de Relacionamento (Transparente para o usuário)
     try:
         df_matriz = pd.read_excel("MATRIZ.xlsx", header=None)
         dict_matriz = {}
@@ -164,7 +169,6 @@ if st.button("🚀 Gerar Relatório de Conciliação", type="primary", use_conta
         st.error("❌ Ocorreu um erro ao ler a Matriz de configuração. Verifique o arquivo MATRIZ.xlsx.")
         st.stop()
 
-    # 2. Parear as abas da Planilha com os PDFs correspondentes
     pdfs = {f.name: f for f in uploaded_pdfs}
     pares = []
     avisos_usuario = []
@@ -173,8 +177,6 @@ if st.button("🚀 Gerar Relatório de Conciliação", type="primary", use_conta
         xls_file = pd.ExcelFile(uploaded_siafi)
         for sheet_name in xls_file.sheet_names:
             if sheet_name.upper() == "MATRIZ": continue
-            
-            # Identifica o número da Unidade Gestora pelo nome da aba
             match = re.search(r'^(\d+)', sheet_name)
             if match:
                 ug = match.group(1)
@@ -189,192 +191,254 @@ if st.button("🚀 Gerar Relatório de Conciliação", type="primary", use_conta
 
     if not pares:
         st.error("❌ Não foi possível encontrar pares correspondentes (Aba do Excel + PDF com o mesmo número de UG). Verifique o nome dos arquivos.")
-    else:
-        pdf_out = PDF_Report()
-        pdf_out.add_page()
-        st.subheader("🔍 Resultados da Conciliação")
+        st.stop()
 
-        for idx, par in enumerate(pares):
-            ug = par['ug']
-            status_text.text(f"Analisando dados da Unidade Gestora: {ug}...")
+    dados_ug = {}
+    
+    for idx, par in enumerate(pares):
+        ug = par['ug']
+        status_text.text(f"Lendo e analisando dados da Unidade Gestora: {ug}...")
+        
+        # Leitura Excel
+        df_padrao = pd.DataFrame(columns=['Chave_Vinculo', 'Saldo_Excel', 'Descricao_Completa'])
+        saldo_estoque = 0.0
+        tem_estoque_com_saldo = False
+        
+        try:
+            df_raw = pd.read_excel(xls_file, sheet_name=par['sheet_name'], header=None)
+            df_dados = extract_excel_data(df_raw)
             
-            with st.container():
-                st.info(f"🏢 **Unidade Gestora: {ug}**")
+            if not df_dados.empty:
+                if '123110801' in df_dados['Conta'].values:
+                    saldo_estoque = df_dados[df_dados['Conta'] == '123110801']['Valor'].sum()
+                    if abs(saldo_estoque) > 0.0: tem_estoque_com_saldo = True
                 
-                # --- LEITURA DO EXCEL ---
-                df_padrao = pd.DataFrame(columns=['Chave_Vinculo', 'Saldo_Excel', 'Descricao_Completa'])
-                saldo_estoque = 0.0
-                tem_estoque_com_saldo = False
+                contas_ignoradas = ['123110703', '123110402', '123119910', '123110801']
+                df_dados = df_dados[~df_dados['Conta'].isin(contas_ignoradas)].copy()
+                df_dados['Chave_Vinculo'] = df_dados['Conta'].apply(lambda c: get_chave_vinculo(c, dict_matriz))
+                df_valid = df_dados.dropna(subset=['Chave_Vinculo']).copy()
                 
-                try:
-                    df_raw = pd.read_excel(xls_file, sheet_name=par['sheet_name'], header=None)
-                    df_dados = extract_excel_data(df_raw)
-                    
-                    if not df_dados.empty:
-                        # Extrai saldo de Estoque Interno para informação adicional
-                        if '123110801' in df_dados['Conta'].values:
-                            saldo_estoque = df_dados[df_dados['Conta'] == '123110801']['Valor'].sum()
-                            if abs(saldo_estoque) > 0.0: tem_estoque_com_saldo = True
-                        
-                        # Remove contas que não participam do cruzamento
-                        contas_ignoradas = ['123110703', '123110402', '123119910', '123110801']
-                        df_dados = df_dados[~df_dados['Conta'].isin(contas_ignoradas)].copy()
-                        
-                        df_dados['Chave_Vinculo'] = df_dados['Conta'].apply(lambda c: get_chave_vinculo(c, dict_matriz))
-                        df_valid = df_dados.dropna(subset=['Chave_Vinculo']).copy()
-                        
-                        if not df_valid.empty:
-                            df_valid['Chave_Vinculo'] = df_valid['Chave_Vinculo'].astype(int)
-                            df_padrao = df_valid.groupby('Chave_Vinculo').agg({
-                                'Valor': 'sum',
-                                'Descricao': 'first'
-                            }).reset_index()
-                            df_padrao.columns = ['Chave_Vinculo', 'Saldo_Excel', 'Descricao_Completa']
-                except Exception as e:
-                    avisos_usuario.append(f"Erro ao processar os dados da planilha para a UG {ug}.")
+                if not df_valid.empty:
+                    df_valid['Chave_Vinculo'] = df_valid['Chave_Vinculo'].astype(int)
+                    df_padrao = df_valid.groupby('Chave_Vinculo').agg({'Valor': 'sum', 'Descricao': 'first'}).reset_index()
+                    df_padrao.columns = ['Chave_Vinculo', 'Saldo_Excel', 'Descricao_Completa']
+        except Exception as e:
+            avisos_usuario.append(f"Erro ao processar os dados da planilha para a UG {ug}.")
 
-                # --- LEITURA DO PDF ---
-                df_pdf_final = pd.DataFrame(columns=['Chave_Vinculo', 'Saldo_PDF'])
-                dados_pdf = []
-                
-                try:
-                    par['pdf'].seek(0)
-                    pdf_bytes = par['pdf'].read()
-                    
-                    with pdfplumber.open(io.BytesIO(pdf_bytes)) as p_doc:
-                        for page in p_doc.pages:
-                            txt = page.extract_text()
-                            is_ocr = False
+        # Leitura PDF
+        df_pdf_final = pd.DataFrame(columns=['Chave_Vinculo', 'Saldo_PDF'])
+        dados_pdf = []
+        try:
+            par['pdf'].seek(0)
+            pdf_bytes = par['pdf'].read()
+            with pdfplumber.open(io.BytesIO(pdf_bytes)) as p_doc:
+                for page in p_doc.pages:
+                    txt = page.extract_text()
+                    is_ocr = False
+                    if not txt or len(txt) < 50:
+                        is_ocr = True
+                        try:
+                            imagens = convert_from_bytes(pdf_bytes, first_page=page.page_number, last_page=page.page_number, dpi=300)
+                            if imagens: txt = pytesseract.image_to_string(imagens[0], lang='por', config='--psm 6')
+                        except: pass
+
+                    if not txt: continue
+                    if "DE ENTRADAS" in txt.upper() or "DE SAÍDAS" in txt.upper(): continue
+
+                    for line in txt.split('\n'):
+                        line = line.strip()
+                        if re.match(r'^"?\d+', line):
+                            vals = []
+                            if is_ocr:
+                                vals_raw = re.findall(r'([\d\.\s]+,\d{2})', line)
+                                vals = [v.replace(' ', '') for v in vals_raw]
+                            else:
+                                vals = re.findall(r'([0-9]{1,3}(?:[.,][0-9]{3})*[.,]\d{2})', line)
                             
-                            if not txt or len(txt) < 50:
-                                is_ocr = True
-                                try:
-                                    imagens = convert_from_bytes(pdf_bytes, first_page=page.page_number, last_page=page.page_number, dpi=300)
-                                    if imagens:
-                                        txt = pytesseract.image_to_string(imagens[0], lang='por', config='--psm 6')
-                                except: pass
+                            if len(vals) >= 4:
+                                chave_match = re.match(r'^"?(\d+)', line)
+                                if chave_match:
+                                    chave_raw = chave_match.group(1)
+                                    chave_final = int(chave_raw[-2:]) if len(chave_raw) >= 4 else int(chave_raw)
+                                    dados_pdf.append({'Chave_Vinculo': chave_final, 'Saldo_PDF': limpar_valor(vals[-4])})
+            if dados_pdf:
+                df_pdf_final = pd.DataFrame(dados_pdf).groupby('Chave_Vinculo')['Saldo_PDF'].sum().reset_index()
+        except Exception as e: 
+            avisos_usuario.append(f"Erro ao ler o documento PDF da UG {ug}.")
 
-                            if not txt: continue
-                            if "DE ENTRADAS" in txt.upper() or "DE SAÍDAS" in txt.upper(): continue
+        dados_ug[ug] = {
+            'df_excel': df_padrao,
+            'df_pdf': df_pdf_final.copy(),
+            'df_pdf_original': df_pdf_final.copy(), # Memória fotográfica
+            'saldo_estoque': saldo_estoque,
+            'tem_estoque': tem_estoque_com_saldo
+        }
+        
+        progresso.progress((idx + 1) / len(pares))
 
-                            for line in txt.split('\n'):
-                                line = line.strip()
-                                if re.match(r'^"?\d+', line):
-                                    vals = []
-                                    if is_ocr:
-                                        vals_raw = re.findall(r'([\d\.\s]+,\d{2})', line)
-                                        vals = [v.replace(' ', '') for v in vals_raw]
-                                    else:
-                                        vals = re.findall(r'([0-9]{1,3}(?:[.,][0-9]{3})*[.,]\d{2})', line)
-                                    
-                                    if len(vals) >= 4:
-                                        chave_match = re.match(r'^"?(\d+)', line)
-                                        if chave_match:
-                                            chave_raw = chave_match.group(1)
-                                            chave_final = int(chave_raw[-2:]) if len(chave_raw) >= 4 else int(chave_raw)
-                                            
-                                            dados_pdf.append({
-                                                'Chave_Vinculo': chave_final,
-                                                'Saldo_PDF': limpar_valor(vals[-4])
-                                            })
-                    if dados_pdf:
-                        df_pdf_final = pd.DataFrame(dados_pdf).groupby('Chave_Vinculo')['Saldo_PDF'].sum().reset_index()
-                except Exception as e: 
-                    avisos_usuario.append(f"Erro ao ler o documento PDF da UG {ug}.")
+    st.session_state.dados_ug = dados_ug
+    st.session_state.avisos_usuario = avisos_usuario
+    st.session_state.dados_processados = True
+    progresso.empty()
+    status_text.empty()
 
-                # --- CRUZAMENTO DOS DADOS ---
-                final = pd.merge(df_pdf_final, df_padrao, on='Chave_Vinculo', how='outer').fillna(0)
-                final['Descricao'] = final.apply(lambda x: x['Descricao_Completa'] if pd.notna(x['Descricao_Completa']) and str(x['Descricao_Completa']).strip() != '0' else "ITEM SEM DESCRIÇÃO NO SIAFI", axis=1)
-                final['Diferenca'] = (final['Saldo_PDF'] - final['Saldo_Excel']).round(2)
-                divergencias = final[abs(final['Diferenca']) > 0.05].copy()
+# ==========================================
+# ETAPA 2: REVISÃO CIRÚRGICA E PDF FINAL
+# ==========================================
+if st.session_state.get('dados_processados'):
+    st.markdown("---")
+    st.subheader("🔍 Resultados da Conciliação & Revisão")
+    st.info("💡 **Ação Cirúrgica:** Altere os valores na coluna dos Relatórios caso o sistema tenha interpretado algo incorretamente. O cálculo refaz-se na hora.")
 
-                soma_pdf = final['Saldo_PDF'].sum()
-                soma_excel = final['Saldo_Excel'].sum()
-                dif_total = soma_pdf - soma_excel
+    pdf_out = PDF_Report()
+    pdf_out.add_page()
+    dados_ug = st.session_state.dados_ug
 
-                # --- EXIBIÇÃO EM TELA ---
-                col1, col2, col3 = st.columns(3)
-                col1.metric("Total RMB (PDF)", f"R$ {soma_pdf:,.2f}")
-                col2.metric("Total SIAFI (Excel)", f"R$ {soma_excel:,.2f}")
-                col3.metric("Diferença Encontrada", f"R$ {dif_total:,.2f}", delta_color="inverse" if abs(dif_total) > 0.05 else "normal")
-                
-                if not divergencias.empty:
-                    st.warning(f"Atenção: Foram encontradas {len(divergencias)} conta(s) com divergência de valores.")
-                    with st.expander("Visualizar Contas com Divergência"):
-                        st.dataframe(divergencias[['Chave_Vinculo', 'Descricao', 'Saldo_PDF', 'Saldo_Excel', 'Diferenca']])
-                else: 
-                    st.success("✅ Conciliado com sucesso! Nenhuma divergência de valores foi encontrada.")
+    for ug, info in dados_ug.items():
+        # Cruzamento Original (para descobrir onde a edição deve ser liberada permanentemente)
+        original = pd.merge(info['df_pdf_original'], info['df_excel'], on='Chave_Vinculo', how='outer').fillna(0)
+        original['Diferenca_Original'] = original['Saldo_PDF'] - original['Saldo_Excel']
+        chaves_com_erro = original[abs(original['Diferenca_Original']) > 0.05]['Chave_Vinculo'].tolist()
 
-                if tem_estoque_com_saldo: 
-                    st.info(f"Aviso Contábil: A Conta de Estoque Interno (123110801) possui saldo de R$ {saldo_estoque:,.2f}.")
-                st.markdown("---")
-
-                # --- GERAÇÃO DO PDF FINAL ---
-                pdf_out.set_font("helvetica", 'B', 11)
-                pdf_out.set_fill_color(240, 240, 240)
-                pdf_out.cell(0, 10, text=f"Unidade Gestora: {ug}", border=1, new_x=XPos.LMARGIN, new_y=YPos.NEXT, fill=True)
-                
-                if not divergencias.empty:
-                    pdf_out.set_font("helvetica", 'B', 9)
-                    pdf_out.set_fill_color(255, 200, 200)
-                    pdf_out.cell(15, 8, "Item", 1, fill=True)
-                    pdf_out.cell(85, 8, "Descrição da Conta", 1, fill=True)
-                    pdf_out.cell(30, 8, "SALDO RMB", 1, fill=True)
-                    pdf_out.cell(30, 8, "SALDO SIAFI", 1, fill=True)
-                    pdf_out.cell(30, 8, "Diferença", 1, fill=True, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-                    
-                    pdf_out.set_font("helvetica", '', 8)
-                    for _, row in divergencias.iterrows():
-                        pdf_out.cell(15, 7, str(int(row['Chave_Vinculo'])), 1)
-                        pdf_out.cell(85, 7, str(row['Descricao'])[:48], 1)
-                        pdf_out.cell(30, 7, formatar_real(row['Saldo_PDF']), 1)
-                        pdf_out.cell(30, 7, formatar_real(row['Saldo_Excel']), 1)
-                        pdf_out.set_text_color(200, 0, 0)
-                        pdf_out.cell(30, 7, formatar_real(row['Diferenca']), 1, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-                        pdf_out.set_text_color(0, 0, 0)
+        # Atualiza df_pdf com base nas edições feitas pelo usuário
+        for chave in chaves_com_erro:
+            key_input = f"edit_rmb_{ug}_{int(chave)}"
+            if key_input in st.session_state:
+                novo_val = st.session_state[key_input]
+                if chave in info['df_pdf']['Chave_Vinculo'].values:
+                    info['df_pdf'].loc[info['df_pdf']['Chave_Vinculo'] == chave, 'Saldo_PDF'] = novo_val
                 else:
-                    pdf_out.set_font("helvetica", 'I', 9)
-                    pdf_out.cell(0, 8, "Nenhuma divergência encontrada entre SIAFI e RMB.", 1, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+                    info['df_pdf'] = pd.concat([info['df_pdf'], pd.DataFrame([{'Chave_Vinculo': chave, 'Saldo_PDF': novo_val}])], ignore_index=True)
 
-                if tem_estoque_com_saldo:
-                    pdf_out.ln(2)
-                    pdf_out.set_font("helvetica", 'B', 9)
-                    pdf_out.set_fill_color(255, 255, 200)
-                    pdf_out.cell(100, 8, "SALDO ESTOQUE INTERNO (123110801)", 1, fill=True)
-                    pdf_out.cell(90, 8, f"R$ {formatar_real(saldo_estoque)}", 1, fill=True, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        # Cruzamento Atualizado
+        final = pd.merge(info['df_pdf'], info['df_excel'], on='Chave_Vinculo', how='outer').fillna(0)
+        final['Descricao'] = final.apply(lambda x: x['Descricao_Completa'] if pd.notna(x['Descricao_Completa']) and str(x['Descricao_Completa']).strip() != '0' else "ITEM SEM DESCRIÇÃO NO SIAFI", axis=1)
+        final['Diferenca'] = (final['Saldo_PDF'] - final['Saldo_Excel']).round(2)
+        
+        soma_pdf = final['Saldo_PDF'].sum()
+        soma_excel = final['Saldo_Excel'].sum()
+        dif_total = soma_pdf - soma_excel
 
+        with st.container():
+            st.markdown(f"### 🏢 Unidade Gestora: {ug}")
+            
+            # Métricas
+            col1, col2, col3 = st.columns(3)
+            col1.metric("Total relatório (PDF)", f"R$ {formatar_real(soma_pdf)}")
+            col2.metric("Total SIAFI (Excel)", f"R$ {formatar_real(soma_excel)}")
+            col3.metric("Diferença Encontrada", f"R$ {formatar_real(dif_total)}", delta_color="inverse" if abs(dif_total) > 0.05 else "normal")
+            
+            if chaves_com_erro:
+                tem_erro_atual = abs(dif_total) > 0.05
+                titulo_expander = f"⚠️ Contas com Divergência" if tem_erro_atual else "✅ Corrigido Manualmente"
+                
+                with st.expander(titulo_expander, expanded=tem_erro_atual):
+                    df_view = final[final['Chave_Vinculo'].isin(chaves_com_erro)].copy()
+                    df_view = df_view[['Chave_Vinculo', 'Descricao', 'Saldo_PDF', 'Saldo_Excel', 'Diferenca']]
+                    df_view.rename(columns={'Saldo_PDF': 'Saldo relatório', 'Saldo_Excel': 'Saldo SIAFI'}, inplace=True)
+                    
+                    st.dataframe(df_view.style.format({
+                        "Saldo relatório": lambda x: f"R$ {formatar_real(x)}", 
+                        "Saldo SIAFI": lambda x: f"R$ {formatar_real(x)}", 
+                        "Diferença": lambda x: f"R$ {formatar_real(x)}"
+                    }), use_container_width=True)
+
+                    st.markdown("**✏️ Correção Manual por Item:**")
+                    cols = st.columns(3)
+                    for idx, chave in enumerate(chaves_com_erro):
+                        val_atual = final.loc[final['Chave_Vinculo'] == chave, 'Saldo_PDF'].sum()
+                        with cols[idx % 3]:
+                            st.number_input(f"Item {int(chave)}", value=float(val_atual), step=100.0, key=f"edit_rmb_{ug}_{int(chave)}")
+            else: 
+                st.success("✅ Conciliado com sucesso! Nenhuma divergência de valores foi encontrada.")
+
+            if info['tem_estoque']: 
+                st.info(f"Aviso Contábil: A Conta de Estoque Interno (123110801) possui saldo de R$ {formatar_real(info['saldo_estoque'])}.")
+            st.markdown("---")
+
+            # ==========================================
+            # GERAÇÃO DO PDF PARA A UG
+            # ==========================================
+            pdf_out.set_font("helvetica", 'B', 11)
+            pdf_out.set_fill_color(240, 240, 240)
+            pdf_out.cell(0, 10, text=f"Unidade Gestora: {ug}", border=1, new_x=XPos.LMARGIN, new_y=YPos.NEXT, fill=True)
+            
+            mask_mostrar = (abs(final['Diferenca']) > 0.05) | (final['Chave_Vinculo'].isin(chaves_com_erro))
+            itens_para_mostrar = final[mask_mostrar].copy()
+
+            if not itens_para_mostrar.empty:
+                pdf_out.set_font("helvetica", 'B', 9)
+                pdf_out.set_fill_color(255, 200, 200)
+                pdf_out.cell(15, 8, "Item", 1, fill=True)
+                pdf_out.cell(85, 8, "Descrição da Conta", 1, fill=True)
+                pdf_out.cell(30, 8, "Saldo relatório", 1, fill=True)
+                pdf_out.cell(30, 8, "Saldo SIAFI", 1, fill=True)
+                pdf_out.cell(30, 8, "Diferença", 1, fill=True, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+                
+                pdf_out.set_font("helvetica", '', 8)
+                alertas_auditoria = []
+
+                for _, row in itens_para_mostrar.iterrows():
+                    chave = row['Chave_Vinculo']
+                    val_original = info['df_pdf_original'].loc[info['df_pdf_original']['Chave_Vinculo'] == chave, 'Saldo_PDF'].sum()
+                    editado = abs(row['Saldo_PDF'] - val_original) > 0.01
+
+                    str_saldo_relatorio = formatar_real(row['Saldo_PDF']) + (" *" if editado else "")
+                    
+                    pdf_out.cell(15, 7, str(int(chave)), 1)
+                    pdf_out.cell(85, 7, str(row['Descricao'])[:48], 1)
+                    pdf_out.cell(30, 7, str_saldo_relatorio, 1, align='R')
+                    pdf_out.cell(30, 7, formatar_real(row['Saldo_Excel']), 1, align='R')
+                    if abs(row['Diferenca']) > 0.05: pdf_out.set_text_color(200, 0, 0)
+                    pdf_out.cell(30, 7, formatar_real(row['Diferenca']), 1, align='R', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+                    pdf_out.set_text_color(0, 0, 0)
+
+                    if editado:
+                        alertas_auditoria.append(f"* ALERTA: O valor do Item {int(chave)} foi alterado manualmente pelo utilizador. (Valor original lido do PDF: R$ {formatar_real(val_original)})")
+
+                # Impressão dos alertas de auditoria
+                if alertas_auditoria:
+                    pdf_out.set_font("helvetica", 'I', 7)
+                    pdf_out.set_text_color(180, 0, 0)
+                    for alerta in alertas_auditoria:
+                        pdf_out.cell(0, 5, alerta, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+                    pdf_out.set_text_color(0, 0, 0)
+            else:
+                pdf_out.set_font("helvetica", 'I', 9)
+                pdf_out.cell(0, 8, "Nenhuma divergência encontrada entre SIAFI e os Relatórios.", 1, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+
+            if info['tem_estoque']:
                 pdf_out.ln(2)
                 pdf_out.set_font("helvetica", 'B', 9)
-                pdf_out.set_fill_color(220, 230, 241)
-                pdf_out.cell(100, 8, "RESUMO DOS TOTAIS", 1, fill=True)
-                pdf_out.cell(30, 8, formatar_real(soma_pdf), 1, fill=True)
-                pdf_out.cell(30, 8, formatar_real(soma_excel), 1, fill=True)
-                if abs(dif_total) > 0.05: pdf_out.set_text_color(200, 0, 0)
-                pdf_out.cell(30, 8, formatar_real(dif_total), 1, fill=True, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-                pdf_out.set_text_color(0, 0, 0)
-                pdf_out.ln(5)
-            
-            progresso.progress((idx + 1) / len(pares))
+                pdf_out.set_fill_color(255, 255, 200)
+                pdf_out.cell(100, 8, "SALDO ESTOQUE INTERNO (123110801)", 1, fill=True)
+                pdf_out.cell(90, 8, f"R$ {formatar_real(info['saldo_estoque'])}", 1, fill=True, align='R', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
 
-        status_text.success("Concluído! Verifique os resultados na tela e baixe seu relatório final.")
-        progresso.empty()
-        
-        # Exibe os avisos apenas se houver algum
-        if avisos_usuario:
-            st.warning("⚠️ **Avisos do Sistema:**")
-            for aviso in avisos_usuario:
-                st.write(f"- {aviso}")
-        
-        # Botão final de Download
-        try:
-            pdf_bytes = bytes(pdf_out.output())
-            st.download_button(
-                label="📄 Fazer Download do Relatório Completo (PDF)", 
-                data=pdf_bytes, 
-                file_name="Relatorio_Conciliacao_Patrimonial_RMB.pdf", 
-                mime="application/pdf", 
-                type="primary", 
-                use_container_width=True
-            )
-        except Exception as e: 
-            st.error("Ocorreu um erro ao gerar o arquivo PDF para download.")
+            pdf_out.ln(2)
+            pdf_out.set_font("helvetica", 'B', 9)
+            pdf_out.set_fill_color(220, 230, 241)
+            pdf_out.cell(100, 8, "RESUMO DOS TOTAIS", 1, fill=True)
+            pdf_out.cell(30, 8, formatar_real(soma_pdf), 1, fill=True, align='R')
+            pdf_out.cell(30, 8, formatar_real(soma_excel), 1, fill=True, align='R')
+            if abs(dif_total) > 0.05: pdf_out.set_text_color(200, 0, 0)
+            pdf_out.cell(30, 8, formatar_real(dif_total), 1, fill=True, align='R', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+            pdf_out.set_text_color(0, 0, 0)
+            pdf_out.ln(5)
+
+    if st.session_state.avisos_usuario:
+        st.warning("⚠️ **Avisos do Sistema:**")
+        for aviso in st.session_state.avisos_usuario:
+            st.write(f"- {aviso}")
+    
+    try:
+        pdf_bytes = bytes(pdf_out.output())
+        st.download_button(
+            label="📄 Fazer Download do Relatório Completo (PDF)", 
+            data=pdf_bytes, 
+            file_name="Relatorio_Conciliacao_Patrimonial_RMB.pdf", 
+            mime="application/pdf", 
+            type="primary", 
+            use_container_width=True
+        )
+    except Exception as e: 
+        st.error("Ocorreu um erro ao gerar o arquivo PDF para download.")
