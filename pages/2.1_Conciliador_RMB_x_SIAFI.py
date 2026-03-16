@@ -286,6 +286,19 @@ if st.button("🚀 Gerar Relatório de Conciliação", type="primary", use_conta
 # ETAPA 2: REVISÃO CIRÚRGICA E PDF FINAL
 # ==========================================
 if st.session_state.get('dados_processados'):
+    
+    # === AVISO NO TOPO COM CAIXA DE CONFIRMAÇÃO ===
+    if st.session_state.avisos_usuario:
+        st.warning("⚠️ **ATENÇÃO: Existem relatórios (PDF) ausentes ou outros avisos!**")
+        with st.expander("Ver lista de avisos e relatórios ausentes", expanded=True):
+            for aviso in st.session_state.avisos_usuario:
+                st.write(f"- {aviso}")
+                
+        prosseguir = st.checkbox("✅ Desejo prosseguir com a conciliação mesmo com ficheiros em falta")
+        if not prosseguir:
+            st.stop() # Pausa a renderização aqui até que o utilizador marque a caixa
+    # ==============================================
+
     st.markdown("---")
     st.subheader("🔍 Resultados da Conciliação & Revisão")
     st.info("💡 **Ação Cirúrgica:** Altere os valores na coluna dos Relatórios caso o sistema tenha interpretado algo incorretamente. O cálculo refaz-se na hora.")
@@ -424,11 +437,6 @@ if st.session_state.get('dados_processados'):
             pdf_out.cell(30, 8, formatar_real(dif_total), 1, fill=True, align='R', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
             pdf_out.set_text_color(0, 0, 0)
             pdf_out.ln(5)
-
-    if st.session_state.avisos_usuario:
-        st.warning("⚠️ **Avisos do Sistema:**")
-        for aviso in st.session_state.avisos_usuario:
-            st.write(f"- {aviso}")
     
     try:
         pdf_bytes = bytes(pdf_out.output())
