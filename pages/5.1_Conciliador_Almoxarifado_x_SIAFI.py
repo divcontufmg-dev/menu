@@ -257,6 +257,18 @@ if st.button("🚀 Gerar relatório", use_container_width=True, type="primary"):
 # ETAPA 2: REVISÃO CIRÚRGICA E PDF FINAL
 # ==========================================
 if st.session_state.get('dados_processados'):
+    
+    # === AVISO NO TOPO COM CAIXA DE CONFIRMAÇÃO ===
+    if st.session_state.logs:
+        st.warning("⚠️ **ATENÇÃO: Existem relatórios (PDF) ausentes ou abas ignoradas!**")
+        with st.expander("Ver lista de avisos e relatórios ausentes", expanded=True):
+            for log in st.session_state.logs: st.write(log)
+            
+        prosseguir = st.checkbox("✅ Desejo prosseguir com a conciliação mesmo com ficheiros em falta")
+        if not prosseguir:
+            st.stop() # Pausa a renderização aqui até que o utilizador marque a caixa
+    # ==============================================
+
     st.markdown("---")
     st.subheader("🔍 Resultados da Análise & Revisão")
     st.info("💡 **Ação Cirúrgica:** Apenas as contas com divergências permitem edição. As edições ficarão registadas no PDF Final.")
@@ -390,10 +402,6 @@ if st.session_state.get('dados_processados'):
             pdf_out.cell(30, 8, formatar_real(dif_total), 1, fill=True, align='R', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
             pdf_out.set_text_color(0, 0, 0)
             pdf_out.ln(5)
-
-    if st.session_state.logs:
-        with st.expander("⚠️ Avisos do Sistema (Arquivos e Abas Ignorados)"):
-            for log in st.session_state.logs: st.write(log)
     
     try:
         pdf_bytes = bytes(pdf_out.output())
