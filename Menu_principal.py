@@ -36,3 +36,5 @@ st.page_link("pages/2.1_Conciliador_RMB_x_SIAFI.py", label="📝 1. Conciliador 
 st.page_link("pages/4.1_Conciliador_Depreciação_x_SIAFI.py", label="📁 2. Conciliador Depreciação x SIAFI", icon="▶️")
 st.page_link("pages/5.1_Conciliador_Almoxarifado_x_SIAFI.py", label="💼 3. Conciliador Almoxarifado x SIAFI", icon="▶️")
 st.page_link("pages/6_Conciliador_Biblioteca.py", label="💻 4. Conciliador Biblioteca", icon="▶️")
+
+st.page_link("pages/testrereav.py", label="💻 test", icon="▶️")
