@@ -2,67 +2,76 @@ import pandas as pd
 import re
 import numpy as np
 
-# --- 1. Parâmetros de Configuração ---
+# --- Configurações ---
 TAMANHO_LOTE = 50
 
 def limpar_texto(texto):
-    """Padroniza a descrição para facilitar o agrupamento."""
+    """Padroniza a descrição (Bem_Completo) para facilitar o agrupamento."""
     if pd.isna(texto):
         return ""
-    # Converte para maiúsculo
     texto = str(texto).upper()
-    # Remove caracteres especiais e pontuações (mantém apenas letras e números)
     texto = re.sub(r'[^A-Z0-9\s]', '', texto)
-    # Remove espaços duplos
     texto = re.sub(r'\s+', ' ', texto).strip()
     return texto
 
-def processar_base_patrimonio(caminho_arquivo):
-    """Lê, parametriza, agrupa e divide a base em lotes."""
+def processar_base_ufmg(caminho_arquivo):
+    """Lê, parametriza, agrupa e divide a base da UFMG em lotes."""
     
-    # 1. Carregar os dados (ajuste o separador se for CSV)
     print("Carregando base de dados...")
-    df = pd.read_excel(caminho_arquivo) # ou pd.read_csv('base.csv')
+    # Lê o CSV (ajuste o delimitador e encoding se necessário, dependendo de como o Excel exportou)
+    df = pd.read_csv(caminho_arquivo, sep=',', encoding='utf-8') 
     
-    # Colunas esperadas: 'Unidade Gestora', 'Número de Patrimônio', 'Descrição', 'Valor', 'Data de Tombamento', 'Estado de Conservação'
+    print("Processando colunas e extraindo dados...")
+    # 1. Limpeza da Descrição
+    df['Descricao_Limpa'] = df['Bem_Completo'].apply(limpar_texto)
     
-    # 2. Limpeza e Parametrização Textual
-    print("Limpando descrições...")
-    df['Descricao_Limpa'] = df['Descrição'].apply(limpar_texto)
-    
-    # Extrair a "Classe" do bem (A primeira palavra, ex: "MICROCOMPUTADOR CORE I7" vira "MICROCOMPUTADOR")
+    # 2. Extração da Palavra-Chave (Substantivo principal)
     df['Palavra_Chave'] = df['Descricao_Limpa'].apply(lambda x: x.split()[0] if x else "INDEFINIDO")
     
-    # Extrair o Ano de Tombamento para agrupar bens da mesma idade
-    df['Ano_Tombamento'] = pd.to_datetime(df['Data de Tombamento'], errors='coerce').dt.year
+    # 3. Extração do Ano de Tombamento a partir do 'Cod ATM'
+    # O 'Cod ATM' começa com o ano (ex: 19940027499 -> 1994)
+    # Convertendo para string e pegando os 4 primeiros caracteres
+    df['Ano_Tombamento'] = df['Cod ATM'].astype(str).str[:4]
     
-    # 3. Agrupamento Lógico (O Segredo para a IA não se perder)
-    # Ordenamos a base para que bens da mesma Unidade, do mesmo Tipo (Palavra-Chave) e da mesma época fiquem juntos.
     print("Agrupando itens similares...")
+    # 4. Agrupamento Lógico
+    # A ordem de ordenação é crucial: primeiro a grande categoria contábil, depois a unidade, o ano e a descrição.
     df = df.sort_values(by=[
-        'Unidade Gestora', 
+        'Título Conta Contábil', 
+        'UG', 
+        'Ano_Tombamento',
         'Palavra_Chave', 
-        'Ano_Tombamento', 
         'Descricao_Limpa'
     ])
     
-    # 4. Geração dos Lotes
     print(f"Quebrando em blocos de {TAMANHO_LOTE} itens...")
-    # Cria um ID de lote sequencial. A cada 50 linhas, o ID muda.
+    # 5. Geração dos Lotes
     df['Lote_ID'] = np.arange(len(df)) // TAMANHO_LOTE
     
     return df
 
-# --- Execução ---
-# df_processado = processar_base_patrimonio('sua_base_ufmg.xlsx')
+# --- Exemplo de Uso e Exportação ---
+# df_loteado = processar_base_ufmg('2022_10_25_Bens_na_UFMG_Conta_Contábil.xlsx - teste.csv')
 
-# Exemplo de como salvar os lotes ou enviá-los (Descomente para usar)
+# Para salvar os lotes limpos para enviar ao Gem:
 '''
-for lote, dados_lote in df_processado.groupby('Lote_ID'):
-    # Exportar apenas as colunas que a IA precisa ver
-    colunas_para_ia = ['Número de Patrimônio', 'Descrição', 'Data de Tombamento', 'Valor', 'Estado de Conservação']
-    dados_exportacao = dados_lote[colunas_para_ia]
+for lote, dados_lote in df_loteado.groupby('Lote_ID'):
+    # Selecionamos apenas as colunas que importam para o Deep Research da IA
+    colunas_ia = [
+        'Cod patri', 
+        'Título Conta Contábil', 
+        'Bem_Completo', 
+        'Ano_Tombamento', 
+        'Valor', 
+        'Estado',
+        'UG'
+    ]
+    dados_exportacao = dados_lote[colunas_ia]
     
-    # Salvar em arquivos separados (ou transformar em JSON para enviar via API)
-    dados_exportacao.to_csv(f"lotes/lote_{lote:04d}.csv", index=False)
+    # Nomeando o arquivo de forma inteligente (ex: lote_0001_MOBILIARIO_EM_GERAL.csv)
+    # Pegamos a conta contábil do primeiro item do lote para dar nome ao arquivo
+    conta_predominante = str(dados_exportacao['Título Conta Contábil'].iloc[0]).replace(" ", "_")
+    nome_arquivo = f"lotes_prontos/lote_{lote:04d}_{conta_predominante}.csv"
+    
+    dados_exportacao.to_csv(nome_arquivo, index=False, sep=';', encoding='utf-8')
 '''
