@@ -1,0 +1,68 @@
+import pandas as pd
+import re
+import numpy as np
+
+# --- 1. Parâmetros de Configuração ---
+TAMANHO_LOTE = 50
+
+def limpar_texto(texto):
+    """Padroniza a descrição para facilitar o agrupamento."""
+    if pd.isna(texto):
+        return ""
+    # Converte para maiúsculo
+    texto = str(texto).upper()
+    # Remove caracteres especiais e pontuações (mantém apenas letras e números)
+    texto = re.sub(r'[^A-Z0-9\s]', '', texto)
+    # Remove espaços duplos
+    texto = re.sub(r'\s+', ' ', texto).strip()
+    return texto
+
+def processar_base_patrimonio(caminho_arquivo):
+    """Lê, parametriza, agrupa e divide a base em lotes."""
+    
+    # 1. Carregar os dados (ajuste o separador se for CSV)
+    print("Carregando base de dados...")
+    df = pd.read_excel(caminho_arquivo) # ou pd.read_csv('base.csv')
+    
+    # Colunas esperadas: 'Unidade Gestora', 'Número de Patrimônio', 'Descrição', 'Valor', 'Data de Tombamento', 'Estado de Conservação'
+    
+    # 2. Limpeza e Parametrização Textual
+    print("Limpando descrições...")
+    df['Descricao_Limpa'] = df['Descrição'].apply(limpar_texto)
+    
+    # Extrair a "Classe" do bem (A primeira palavra, ex: "MICROCOMPUTADOR CORE I7" vira "MICROCOMPUTADOR")
+    df['Palavra_Chave'] = df['Descricao_Limpa'].apply(lambda x: x.split()[0] if x else "INDEFINIDO")
+    
+    # Extrair o Ano de Tombamento para agrupar bens da mesma idade
+    df['Ano_Tombamento'] = pd.to_datetime(df['Data de Tombamento'], errors='coerce').dt.year
+    
+    # 3. Agrupamento Lógico (O Segredo para a IA não se perder)
+    # Ordenamos a base para que bens da mesma Unidade, do mesmo Tipo (Palavra-Chave) e da mesma época fiquem juntos.
+    print("Agrupando itens similares...")
+    df = df.sort_values(by=[
+        'Unidade Gestora', 
+        'Palavra_Chave', 
+        'Ano_Tombamento', 
+        'Descricao_Limpa'
+    ])
+    
+    # 4. Geração dos Lotes
+    print(f"Quebrando em blocos de {TAMANHO_LOTE} itens...")
+    # Cria um ID de lote sequencial. A cada 50 linhas, o ID muda.
+    df['Lote_ID'] = np.arange(len(df)) // TAMANHO_LOTE
+    
+    return df
+
+# --- Execução ---
+# df_processado = processar_base_patrimonio('sua_base_ufmg.xlsx')
+
+# Exemplo de como salvar os lotes ou enviá-los (Descomente para usar)
+'''
+for lote, dados_lote in df_processado.groupby('Lote_ID'):
+    # Exportar apenas as colunas que a IA precisa ver
+    colunas_para_ia = ['Número de Patrimônio', 'Descrição', 'Data de Tombamento', 'Valor', 'Estado de Conservação']
+    dados_exportacao = dados_lote[colunas_para_ia]
+    
+    # Salvar em arquivos separados (ou transformar em JSON para enviar via API)
+    dados_exportacao.to_csv(f"lotes/lote_{lote:04d}.csv", index=False)
+'''
