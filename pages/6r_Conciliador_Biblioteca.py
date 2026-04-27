@@ -292,6 +292,18 @@ if st.button("🚀 Iniciar Conciliação", use_container_width=True, type="prima
 # ETAPA 2: REVISÃO CIRÚRGICA E GERAÇÃO DE PDF
 # ==========================================
 if st.session_state.get('dados_processados'):
+    
+    # === AVISO NO TOPO COM CAIXA DE CONFIRMAÇÃO ===
+    if st.session_state.logs:
+        st.warning("⚠️ **ATENÇÃO: Existem relatórios (PDF) ausentes identificados!**")
+        with st.expander("Ver lista de Relatórios Ausentes", expanded=True):
+            for log in st.session_state.logs: st.write(log)
+            
+        prosseguir = st.checkbox("✅ Desejo prosseguir com a conciliação mesmo com ficheiros em falta")
+        if not prosseguir:
+            st.stop() # Pausa a renderização aqui até que o utilizador marque a caixa
+    # ==============================================
+
     st.markdown("---")
     st.subheader("🔍 Resultados da Análise & Revisão")
     st.info("💡 **Ação Cirúrgica:** Apenas os campos com divergências permitem edição. As edições ficarão registadas no PDF Final.")
@@ -453,10 +465,6 @@ if st.session_state.get('dados_processados'):
     c1, c2, c3 = st.columns(3)
     c1.metric("Diferença Total (Acervo)", f"R$ {formatar_real(dif_total_acervo)}", delta_color="inverse" if abs(dif_total_acervo) > 0.05 else "normal")
     c2.metric("Diferença Total (Depreciação)", f"R$ {formatar_real(dif_total_dep)}", delta_color="inverse" if abs(dif_total_dep) > 0.05 else "normal")
-    
-    if st.session_state.logs:
-        with st.expander("⚠️ Avisos de Relatórios Ausentes", expanded=False):
-            for log in st.session_state.logs: st.write(log)
     
     try:
         pdf_bytes = bytes(pdf_out.output())
