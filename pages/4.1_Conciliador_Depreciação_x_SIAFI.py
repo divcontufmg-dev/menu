@@ -166,8 +166,8 @@ with st.expander("📘 GUIA DE USO (Clique para abrir)", expanded=False):
     st.markdown("📌 **Orientações de Uso**")
     st.markdown("""
     1. **Selecione o Mês** que deseja conferir acima.
-    2. Anexe a **Planilha do tesouro e os relatórios** todos juntos no mesmo local abaixo.
-    3. O sistema fará a leitura inicial. **Poderá corrigir valores divergentes manualmente e as edições serão registadas no PDF!**
+    2. Anexe a **Planilha matriz e os relatórios** todos juntos no mesmo local abaixo.
+    3. O sistema apontará divergências. Você pode validar a leitura do PDF ou corrigir valores lidos incorretamente pelo OCR.
     """)
 
 uploaded_files = st.file_uploader(
@@ -239,7 +239,7 @@ if st.button("🚀 Gerar Relatório de Conciliação", type="primary", use_conta
                                         saldo_raw, movim_raw = valid_vals[-1], 0.0
                                     else:
                                         saldo_raw, movim_raw = 0.0, 0.0
-                                            
+                                        
                                     val_saldo = converter_valor_excel(saldo_raw)
                                     val_mov = converter_valor_excel(movim_raw)
                                     
@@ -252,11 +252,10 @@ if st.button("🚀 Gerar Relatório de Conciliação", type="primary", use_conta
                     grupos_combinados = sorted(list(set(d_pdf_raw.keys()) | set(d_excel.keys())))
                     
                     d_pdf = {}
-                    grupos_com_erro = {} # Agora é um dicionário inteligente
+                    grupos_com_erro = {}
                     erro_original = False
                     
                     for g in grupos_combinados:
-                        # Extrai e converte para o sinal correto para a conciliação (inversão)
                         vp_saldo = round(-1 * d_pdf_raw.get(g, {}).get('saldo', 0.0), 2)
                         vp_mov = round(-1 * d_pdf_raw.get(g, {}).get('movimento', 0.0), 2)
                         
@@ -268,7 +267,6 @@ if st.button("🚀 Gerar Relatório de Conciliação", type="primary", use_conta
                         err_saldo = abs(vp_saldo - ve_saldo) > 0.00
                         err_mov = abs(vp_mov - ve_mov) > 0.00
                         
-                        # Regista separadamente qual é a métrica com divergência
                         if err_saldo or err_mov:
                             erro_original = True
                             grupos_com_erro[g] = {'saldo': err_saldo, 'movimento': err_mov}
@@ -299,7 +297,6 @@ if st.button("🚀 Gerar Relatório de Conciliação", type="primary", use_conta
 # ==========================================
 if st.session_state.get('dados_processados'):
     
-    # === AVISO NO TOPO COM CAIXA DE CONFIRMAÇÃO ===
     if st.session_state.logs:
         st.warning("⚠️ **ATENÇÃO: Existem relatórios (PDF) ausentes identificados!**")
         with st.expander("Ver lista de relatórios ausentes", expanded=True):
@@ -307,12 +304,11 @@ if st.session_state.get('dados_processados'):
             
         prosseguir = st.checkbox("✅ Desejo prosseguir com a conciliação mesmo com ficheiros em falta")
         if not prosseguir:
-            st.stop() # Pausa a renderização aqui até que o utilizador marque a caixa
-    # ==============================================
+            st.stop() 
 
     st.markdown("---")
     st.subheader("🔍 Resultados da Conciliação & Revisão")
-    st.info("💡 **Ação Cirúrgica:** Apenas os dados com divergências exibem campos de edição. O que já está correto fica protegido.")
+    st.info("💡 **Ação do Operador:** Para os valores divergentes, você pode atestar que a leitura do relatório (PDF) está correta validando a caixa. Caso o OCR tenha falhado, deixe desmarcado e digite o valor real.")
 
     pdf_out = PDFRelatorio()
     pdf_out.set_auto_page_break(auto=True, margin=15)
@@ -327,15 +323,28 @@ if st.session_state.get('dados_processados'):
         d_pdf = info['d_pdf']
         d_pdf_orig = info['d_pdf_orig']
         
-        # 1. ATUALIZA VALORES EM TEMPO REAL
+        # 1. ATUALIZA VALORES EM TEMPO REAL (Validação ou Edição)
         if info['erro_original'] or not info['tem_pdf']:
             for g in info['grupos_com_erro'].keys():
-                k_saldo = f"ed_s_{sheet_name}_{g}"
-                k_mov = f"ed_m_{sheet_name}_{g}"
-                if k_saldo in st.session_state: d_pdf[g]['saldo'] = st.session_state[k_saldo]
-                if k_mov in st.session_state: d_pdf[g]['movimento'] = st.session_state[k_mov]
+                # Tratamento Saldo
+                k_val_s = f"val_s_{sheet_name}_{g}"
+                k_ed_s = f"ed_s_{sheet_name}_{g}"
+                
+                if st.session_state.get(k_val_s, False):
+                    d_pdf[g]['saldo'] = d_pdf_orig[g]['saldo']
+                elif k_ed_s in st.session_state:
+                    d_pdf[g]['saldo'] = st.session_state[k_ed_s]
 
-        # 2. RECÁLCULO
+                # Tratamento Movimento
+                k_val_m = f"val_m_{sheet_name}_{g}"
+                k_ed_m = f"ed_m_{sheet_name}_{g}"
+                
+                if st.session_state.get(k_val_m, False):
+                    d_pdf[g]['movimento'] = d_pdf_orig[g]['movimento']
+                elif k_ed_m in st.session_state:
+                    d_pdf[g]['movimento'] = st.session_state[k_ed_m]
+
+        # 2. RECÁLCULO E AUDITORIA
         divergencias = []
         alertas_auditoria = []
         soma_pdf_s = soma_excel_s = soma_pdf_m = soma_excel_m = 0.0
@@ -360,11 +369,21 @@ if st.session_state.get('dados_processados'):
             if abs(dif_m) > 0.00:
                 divergencias.append({'grupo': g, 'tipo': 'Mês Corrente', 'pdf': vp_m, 'excel': ve_m, 'diff': dif_m})
             
-            # Auditoria por grupo
-            if abs(vp_s - d_pdf_orig[g]['saldo']) > 0.01:
-                alertas_auditoria.append(f"* ALERTA: O Saldo Acumulado do Grupo {g} foi alterado manualmente pelo utilizador. (Original lido do PDF: R$ {formatar_real(d_pdf_orig[g]['saldo'])})")
-            if abs(vp_m - d_pdf_orig[g]['movimento']) > 0.01:
-                alertas_auditoria.append(f"* ALERTA: O Mês Corrente do Grupo {g} foi alterado manualmente pelo utilizador. (Original lido do PDF: R$ {formatar_real(d_pdf_orig[g]['movimento'])})")
+            # Formação das notas de auditoria baseada na ação do usuário
+            if g in info.get('grupos_com_erro', {}):
+                # Saldo
+                is_valid_s = st.session_state.get(f"val_s_{sheet_name}_{g}", False)
+                if is_valid_s:
+                    alertas_auditoria.append(f"✓ VALIDAÇÃO: Leitura do Saldo Acumulado (Grupo {g}) atestada como correta pelo operador.")
+                elif abs(vp_s - d_pdf_orig[g]['saldo']) > 0.01:
+                    alertas_auditoria.append(f"* ALERTA: Saldo Acumulado do Grupo {g} alterado manualmente. (Lido: R$ {formatar_real(d_pdf_orig[g]['saldo'])})")
+
+                # Movimento
+                is_valid_m = st.session_state.get(f"val_m_{sheet_name}_{g}", False)
+                if is_valid_m:
+                    alertas_auditoria.append(f"✓ VALIDAÇÃO: Leitura do Mês Corrente (Grupo {g}) atestada como correta pelo operador.")
+                elif abs(vp_m - d_pdf_orig[g]['movimento']) > 0.01:
+                    alertas_auditoria.append(f"* ALERTA: Mês Corrente do Grupo {g} alterado manualmente. (Lido: R$ {formatar_real(d_pdf_orig[g]['movimento'])})")
 
         dif_total_saldo = round(soma_pdf_s - soma_excel_s, 2)
         dif_total_mov = round(soma_pdf_m - soma_excel_m, 2)
@@ -378,7 +397,7 @@ if st.session_state.get('dados_processados'):
             col1.metric("Diferença Saldo Acumulado", f"R$ {formatar_real(dif_total_saldo)}", delta_color="inverse" if abs(dif_total_saldo) > 0.05 else "normal")
             col2.metric("Diferença Mês Corrente", f"R$ {formatar_real(dif_total_mov)}", delta_color="inverse" if abs(dif_total_mov) > 0.05 else "normal")
             
-            titulo_expander = "⚠️ Grupos com Divergência" if tem_erro_atual else ("✅ Corrigido Manualmente" if info['erro_original'] else "✅ Conciliado")
+            titulo_expander = "⚠️ Grupos com Divergência" if tem_erro_atual else ("✅ Resolvido" if info['erro_original'] else "✅ Conciliado")
             if not info['tem_pdf']: titulo_expander += " (Relatório Ausente)"
             
             with st.expander(titulo_expander, expanded=tem_erro_atual or not info['tem_pdf']):
@@ -399,23 +418,27 @@ if st.session_state.get('dados_processados'):
                 else:
                     st.success("Nenhuma divergência nesta unidade.")
 
-                # Caixas de Edição (Aparecem apenas nos grupos com erro na extração original ou relatórios ausentes)
+                # Caixas de Edição e Validação
                 if info['grupos_com_erro']:
                     st.markdown("---")
-                    st.markdown("**✏️ Correção Direta por Grupo Divergente:**")
+                    st.markdown("**✏️ Ação para Divergências por Grupo:**")
                     for g, erros in info['grupos_com_erro'].items():
                         st.markdown(f"**🔹 Grupo {g}**")
                         c1, c2 = st.columns(2)
                         
                         with c1:
                             if erros['saldo'] or not info['tem_pdf']:
-                                st.number_input(f"Saldo Acumulado (Relatório)", value=float(d_pdf[g]['saldo']), step=100.0, key=f"ed_s_{sheet_name}_{g}")
+                                valid_s = st.checkbox(f"✅ Validar leitura (Saldo correto)", key=f"val_s_{sheet_name}_{g}")
+                                if not valid_s:
+                                    st.number_input(f"Corrigir Saldo Acumulado (OCR falhou):", value=float(d_pdf[g]['saldo']), step=100.0, key=f"ed_s_{sheet_name}_{g}")
                             else:
                                 st.text_input(f"Saldo Acumulado (Correto)", value=f"R$ {formatar_real(d_pdf[g]['saldo'])}", disabled=True, key=f"dis_s_{sheet_name}_{g}")
                         
                         with c2:
                             if erros['movimento'] or not info['tem_pdf']:
-                                st.number_input(f"Mês Corrente (Relatório)", value=float(d_pdf[g]['movimento']), step=100.0, key=f"ed_m_{sheet_name}_{g}")
+                                valid_m = st.checkbox(f"✅ Validar leitura (Mês correto)", key=f"val_m_{sheet_name}_{g}")
+                                if not valid_m:
+                                    st.number_input(f"Corrigir Mês Corrente (OCR falhou):", value=float(d_pdf[g]['movimento']), step=100.0, key=f"ed_m_{sheet_name}_{g}")
                             else:
                                 st.text_input(f"Mês Corrente (Correto)", value=f"R$ {formatar_real(d_pdf[g]['movimento'])}", disabled=True, key=f"dis_m_{sheet_name}_{g}")
 
@@ -482,10 +505,21 @@ if st.session_state.get('dados_processados'):
             pdf_out.set_font("helvetica", '', 8)
             for d in divergencias:
                 g = d['grupo']
-                if d['tipo'] == 'Saldo Acumulado': is_edit = abs(d_pdf[g]['saldo'] - d_pdf_orig[g]['saldo']) > 0.01
-                else: is_edit = abs(d_pdf[g]['movimento'] - d_pdf_orig[g]['movimento']) > 0.01
+                
+                # Verifica se a métrica atual foi validada ou editada
+                if d['tipo'] == 'Saldo Acumulado':
+                    is_valid = st.session_state.get(f"val_s_{sheet_name}_{g}", False)
+                    is_edit = abs(d_pdf[g]['saldo'] - d_pdf_orig[g]['saldo']) > 0.01
+                else:
+                    is_valid = st.session_state.get(f"val_m_{sheet_name}_{g}", False)
+                    is_edit = abs(d_pdf[g]['movimento'] - d_pdf_orig[g]['movimento']) > 0.01
                     
-                val_pdf_str = f"R$ {formatar_real(d['pdf'])}" + (" *" if is_edit else "")
+                if is_valid:
+                    val_pdf_str = f"R$ {formatar_real(d['pdf'])} (OK)"
+                elif is_edit:
+                    val_pdf_str = f"R$ {formatar_real(d['pdf'])} *"
+                else:
+                    val_pdf_str = f"R$ {formatar_real(d['pdf'])}"
                 
                 pdf_out.cell(15, 6, str(d['grupo']), 1, align='C')
                 pdf_out.cell(35, 6, d['tipo'], 1, align='C')
@@ -498,8 +532,11 @@ if st.session_state.get('dados_processados'):
         # LOGS DE AUDITORIA NO PDF
         if alertas_auditoria:
             pdf_out.set_font("helvetica", 'I', 7)
-            pdf_out.set_text_color(180, 0, 0)
             for alerta in alertas_auditoria:
+                if alerta.startswith("✓"):
+                    pdf_out.set_text_color(0, 100, 0) # Verde para Validação
+                else:
+                    pdf_out.set_text_color(180, 0, 0) # Vermelho para Edição
                 pdf_out.cell(0, 5, alerta, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
             pdf_out.set_text_color(0, 0, 0)
                 
