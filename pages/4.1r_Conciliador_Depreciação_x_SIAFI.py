@@ -24,6 +24,8 @@ if 'dados_ug' not in st.session_state:
     st.session_state.dados_ug = {}
 if 'matriz_erro' not in st.session_state:
     st.session_state.matriz_erro = False
+if 'logs' not in st.session_state:
+    st.session_state.logs = []
 
 # Oculta elementos técnicos da plataforma e o menu lateral padrão
 hide_streamlit_style = """
@@ -209,10 +211,15 @@ if st.button("🚀 Gerar Relatório de Conciliação", type="primary", use_conta
                 status_box = st.empty()
                 
                 dados_ug = {}
+                logs = []
 
                 for idx, sheet_name in enumerate(abas):
                     ws = wb_alvo[sheet_name]
                     uid = extrair_id_unidade(sheet_name)
+                    
+                    if uid not in dados_pdfs_extraidos:
+                        logs.append(f"⚠️ Aba '{sheet_name}' (ID: {uid}): Relatório em PDF ausente.")
+                        
                     status_box.text(f"Lendo e analisando dados da Unidade Gestora: {sheet_name}...")
                     
                     d_excel = {}
@@ -279,6 +286,7 @@ if st.button("🚀 Gerar Relatório de Conciliação", type="primary", use_conta
                     progresso.progress((idx + 1) / len(abas))
 
                 st.session_state.dados_ug = dados_ug
+                st.session_state.logs = logs
                 st.session_state.dados_processados = True
                 progresso.empty()
                 status_box.empty()
@@ -290,6 +298,18 @@ if st.button("🚀 Gerar Relatório de Conciliação", type="primary", use_conta
 # ETAPA 2: REVISÃO CIRÚRGICA E PDF FINAL
 # ==========================================
 if st.session_state.get('dados_processados'):
+    
+    # === AVISO NO TOPO COM CAIXA DE CONFIRMAÇÃO ===
+    if st.session_state.logs:
+        st.warning("⚠️ **ATENÇÃO: Existem relatórios (PDF) ausentes identificados!**")
+        with st.expander("Ver lista de relatórios ausentes", expanded=True):
+            for log in st.session_state.logs: st.write(log)
+            
+        prosseguir = st.checkbox("✅ Desejo prosseguir com a conciliação mesmo com ficheiros em falta")
+        if not prosseguir:
+            st.stop() # Pausa a renderização aqui até que o utilizador marque a caixa
+    # ==============================================
+
     st.markdown("---")
     st.subheader("🔍 Resultados da Conciliação & Revisão")
     st.info("💡 **Ação Cirúrgica:** Apenas os dados com divergências exibem campos de edição. O que já está correto fica protegido.")
