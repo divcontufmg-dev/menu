@@ -27,8 +27,6 @@ if 'dados_ug' not in st.session_state:
     st.session_state.dados_ug = {}
 if 'logs' not in st.session_state:
     st.session_state.logs = []
-if 'dict_chave_conta' not in st.session_state:
-    st.session_state.dict_chave_conta = {}
 
 # Oculta marcas do Streamlit e o menu lateral automático para um visual mais limpo
 hide_streamlit_style = """
@@ -80,7 +78,7 @@ with st.expander("📘 GUIA DE USO (Clique para abrir)", expanded=False):
     st.markdown("📌 **Orientações de Uso**")
     st.markdown("""
     1. Anexe **o relatório SIAFI em excel** e todos os **arquivos PDF correspondentes** de uma só vez na área abaixo. (O nome dos arquivos deverá ser o código da UG correspondente)
-    2. O sistema fará a leitura inicial cruzando com a MATRIZ. **Poderá corrigir valores lidos incorretamente ou atestar que a leitura do relatório PDF está correta. Tudo será registrado na auditoria!**
+    2. O sistema fará a leitura inicial. **Poderá corrigir valores lidos incorretamente ou atestar que a leitura do relatório PDF está correta. Tudo será registrado na auditoria!**
     """)
 
 # Área de Upload Unificada
@@ -95,38 +93,11 @@ uploaded_files = st.file_uploader(
 # ==========================================
 if st.button("🚀 Gerar relatório", use_container_width=True, type="primary"):
     
-    if not os.path.exists("MATRIZ.xlsx"):
-        st.error("❌ O arquivo de configuração interno ('MATRIZ.xlsx') não foi encontrado. Contate o suporte técnico.")
-        st.stop()
-        
     if not uploaded_files:
         st.warning("⚠️ Por favor, insira seus arquivos para que possamos realizar a conciliação.")
     else:
         progresso = st.progress(0)
         status_text = st.empty()
-        
-        # Leitura da Matriz para cruzar a Conta Contábil
-        try:
-            df_matriz = pd.read_excel("MATRIZ.xlsx", header=None)
-            dict_chave_conta = {}
-            for i in range(len(df_matriz)):
-                c0 = str(df_matriz.iloc[i, 0]).strip().replace('.0', '')
-                c1 = str(df_matriz.iloc[i, 1]).strip().replace('.0', '')
-                
-                # Assume que a string maior é a Conta Contábil Completa
-                conta_completa = c0 if len(c0) > len(c1) else c1
-                valor_vinculo = c1 if len(c0) > len(c1) else c0
-                
-                match = re.search(r'(\d+)$', valor_vinculo)
-                if match:
-                    digits = match.group(1)
-                    chave = str(int(digits[-2:]) if len(digits) >= 2 else int(digits)).zfill(2)
-                    dict_chave_conta[chave] = conta_completa
-                    
-            st.session_state.dict_chave_conta = dict_chave_conta
-        except Exception as e:
-            st.error(f"❌ Ocorreu um erro ao ler a Matriz de configuração: {e}")
-            st.stop()
         
         # Separa os PDFs e pega o primeiro arquivo Excel encontrado
         pdfs = {f.name: f for f in uploaded_files if f.name.lower().endswith('.pdf')}
@@ -338,9 +309,6 @@ if st.session_state.get('dados_processados'):
         final['Descricao'] = final.apply(lambda x: x['Descricao_Completa'] if x['Descricao_Completa'] != 0 else f"Conta {x['Chave_Vinculo']} (Sem no Excel)", axis=1)
         final['Diferenca'] = (final['Saldo_PDF'] - final['Saldo_Excel']).round(2)
         
-        # Mapeamento da Conta Contábil a partir da Matriz
-        final['Conta_Contabil'] = final['Chave_Vinculo'].map(st.session_state.dict_chave_conta).fillna("CONTA DESCONHECIDA")
-        
         soma_pdf = final['Saldo_PDF'].sum()
         soma_excel = final['Saldo_Excel'].sum()
         dif_total = soma_pdf - soma_excel
@@ -360,16 +328,8 @@ if st.session_state.get('dados_processados'):
             with st.expander(titulo_expander, expanded=tem_erro_atual):
                 if info['chaves_com_erro']:
                     df_view = final[final['Chave_Vinculo'].isin(info['chaves_com_erro'])].copy()
-                    
-                    # Organizando a ordem e nomes das colunas para visualização
-                    df_view = df_view[['Chave_Vinculo', 'Conta_Contabil', 'Descricao', 'Saldo_PDF', 'Saldo_Excel', 'Diferenca']]
-                    df_view.rename(columns={
-                        'Chave_Vinculo': 'Item/Chave', 
-                        'Conta_Contabil': 'Conta Contábil',
-                        'Descricao': 'Descrição',
-                        'Saldo_PDF': 'Saldo relatório', 
-                        'Saldo_Excel': 'Saldo SIAFI'
-                    }, inplace=True)
+                    df_view = df_view[['Chave_Vinculo', 'Descricao', 'Saldo_PDF', 'Saldo_Excel', 'Diferenca']]
+                    df_view.rename(columns={'Saldo_PDF': 'Saldo relatório', 'Saldo_Excel': 'Saldo SIAFI'}, inplace=True)
                     
                     st.dataframe(df_view.style.format({
                         "Saldo relatório": lambda x: f"R$ {formatar_real(x)}", 
@@ -403,12 +363,10 @@ if st.session_state.get('dados_processados'):
             itens_para_mostrar = final[mask_mostrar].copy()
 
             if not itens_para_mostrar.empty:
-                pdf_out.set_font("helvetica", 'B', 8)
+                pdf_out.set_font("helvetica", 'B', 9)
                 pdf_out.set_fill_color(255, 200, 200)
-                # Redimensionado para total de 190mm
-                pdf_out.cell(10, 8, "Item", 1, fill=True)
-                pdf_out.cell(24, 8, "Conta Contábil", 1, fill=True)
-                pdf_out.cell(66, 8, "Descrição (Conta Corrente)", 1, fill=True)
+                pdf_out.cell(15, 8, "Chave", 1, fill=True)
+                pdf_out.cell(85, 8, "Descrição (Conta Corrente)", 1, fill=True)
                 pdf_out.cell(30, 8, "Saldo relatório", 1, fill=True, align='C')
                 pdf_out.cell(30, 8, "Saldo SIAFI", 1, fill=True, align='C')
                 pdf_out.cell(30, 8, "Diferença", 1, fill=True, align='C', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
@@ -419,6 +377,7 @@ if st.session_state.get('dados_processados'):
                 for _, row in itens_para_mostrar.iterrows():
                     chave = row['Chave_Vinculo']
                     
+                    # Busca o valor original da fotografia
                     if chave in info['df_pdf_orig']['Chave_Vinculo'].values:
                         val_original = info['df_pdf_orig'].loc[info['df_pdf_orig']['Chave_Vinculo'] == chave, 'Saldo_PDF'].sum()
                     else:
@@ -440,9 +399,8 @@ if st.session_state.get('dados_processados'):
                     else:
                         str_saldo_relatorio = formatar_real(row['Saldo_PDF'])
                     
-                    pdf_out.cell(10, 7, str(chave), 1)
-                    pdf_out.cell(24, 7, str(row['Conta_Contabil']), 1)
-                    pdf_out.cell(66, 7, str(row['Descricao'])[:38], 1)
+                    pdf_out.cell(15, 7, str(chave), 1)
+                    pdf_out.cell(85, 7, str(row['Descricao'])[:48], 1)
                     pdf_out.cell(30, 7, str_saldo_relatorio, 1, align='R')
                     pdf_out.cell(30, 7, formatar_real(row['Saldo_Excel']), 1, align='R')
                     if abs(row['Diferenca']) > 0.05: pdf_out.set_text_color(200, 0, 0)
