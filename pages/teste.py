@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 from datetime import date
 from dateutil.relativedelta import relativedelta
-import io
 from fpdf import FPDF
 
 st.set_page_config(page_title="Mapa de Restrições", layout="wide")
@@ -42,7 +41,7 @@ def gerar_pdf_mensagens(df_dash, dict_rest, data_ref_str, mes_ant_nome, ano_ant_
     ugs_com_restricao = df_dash[df_dash["Situação"] == "Com Restrição"]
     ugs_sem_restricao = df_dash[df_dash["Situação"] == "Sem Restrição"]["UG"].tolist()
     
-    # Adiciona as páginas de mensagens (uma por UG ou sequenciais)
+    # Adiciona as páginas de mensagens
     pdf.add_page()
     pdf.set_font("helvetica", size=11)
     
@@ -57,7 +56,6 @@ def gerar_pdf_mensagens(df_dash, dict_rest, data_ref_str, mes_ant_nome, ano_ant_
             descricao = dict_rest.get(cod, "Descrição não encontrada")
             restricoes_com_desc += f"* {cod} -> {descricao}\n"
             
-        # Corpo da mensagem espelhado do VBA original
         mensagem = (
             f"UG {ug_numero}\n"
             f"Conforme estabelecido no calendário de fechamento mensal, disponível na transação CONFECMES do SIAFI Web, "
@@ -77,10 +75,9 @@ def gerar_pdf_mensagens(df_dash, dict_rest, data_ref_str, mes_ant_nome, ano_ant_
             f"- ATENÇÃO: Para sua segurança, sempre verifique a autenticidade de links.\n"
         )
         
-        # Escreve o bloco de texto formatado
         pdf.multi_cell(0, 5, mensagem)
-        pdf.ln(10) # Espaço entre mensagens. Se preferir 1 por página, use pdf.add_page()
-        pdf.line(10, pdf.get_y(), 200, pdf.get_y()) # Linha divisória
+        pdf.ln(10)
+        pdf.line(10, pdf.get_y(), 200, pdf.get_y())
         pdf.ln(10)
     
     # Adiciona a última página com a lista de UGs sem restrição
@@ -96,7 +93,8 @@ def gerar_pdf_mensagens(df_dash, dict_rest, data_ref_str, mes_ant_nome, ano_ant_
     else:
         pdf.cell(0, 10, "Nenhuma UG classificada como Sem Restrição.")
         
-    return pdf.output()
+    # CORREÇÃO: Forçando a conversão de bytearray para bytes
+    return bytes(pdf.output())
 
 st.title("Mapa de Restrições por UG")
 
@@ -111,10 +109,11 @@ if 'restricoes_aplicadas' not in st.session_state:
 
 st.divider()
 
-# Configuração de Datas com o Mês em Português
+# Configuração de Datas
 col_data1, col_data2 = st.columns(2)
 with col_data1:
-    data_fechamento = st.date_input("Data de Fechamento", value=date.today(), format="DD/MM/YYYY")
+    # CORREÇÃO: Novo rótulo do campo
+    data_fechamento = st.date_input("Data da Conformidade Contábil", value=date.today(), format="DD/MM/YYYY")
     
 data_anterior = data_fechamento - relativedelta(months=1)
 mes_anterior_pt = MESES_PT[data_anterior.month]
