@@ -3,7 +3,6 @@ import pandas as pd
 from datetime import date
 from dateutil.relativedelta import relativedelta
 from fpdf import FPDF
-import base64
 import openpyxl
 
 st.set_page_config(page_title="Mapa de Restrições", layout="wide")
@@ -14,60 +13,64 @@ MESES_PT = {
     9: "Setembro", 10: "Outubro", 11: "Novembro", 12: "Dezembro"
 }
 
-# --- 1. MÓDULO DE ADMINISTRAÇÃO (TOPO DIREITO) ---
-col_titulo, col_ajustes = st.columns([8, 3])
+# --- 1. MÓDULO DE ADMINISTRAÇÃO ---
+col_titulo, col_toggle = st.columns([8, 2])
 
 with col_titulo:
     st.title("Mapa de Restrições por UG")
 
-with col_ajustes:
-    with st.expander("⚙️ Ajustes do Sistema"):
-        senha = st.text_input("Senha de acesso:", type="password", key="senha_admin")
-        if senha == "dcfdc":
-            st.markdown("**Gerenciador do Banco de Dados (Excel)**")
+with col_toggle:
+    st.write("") # Espaçamento para alinhar com o título
+    admin_mode = st.toggle("⚙️ Modo Admin")
+
+if admin_mode:
+    st.markdown("### Gerenciador do Banco de Dados (Excel)")
+    senha = st.text_input("Senha de acesso:", type="password", key="senha_admin")
+    
+    if senha == "dcfdc":
+        try:
+            arquivo = "base.xlsx"
+            df_ug_bruto = pd.read_excel(arquivo, sheet_name="ug")
+            df_rest_bruto = pd.read_excel(arquivo, sheet_name="restrições")
             
-            try:
-                # Carrega a planilha bruta sem cache para a edição
-                arquivo = "base.xlsx"
-                df_ug_bruto = pd.read_excel(arquivo, sheet_name="ug")
-                df_rest_bruto = pd.read_excel(arquivo, sheet_name="restrições")
+            aba_rest, aba_ug = st.tabs(["Restrições", "UGs"])
+            
+            with aba_rest:
+                st.info("Edite os campos, adicione linhas no final ou exclua linhas selecionando a lateral e apertando Delete.")
+                df_rest_editado = st.data_editor(
+                    df_rest_bruto, 
+                    num_rows="dynamic", 
+                    use_container_width=True,
+                    height=400,
+                    key="editor_rest"
+                )
                 
-                # Cria abas para organizar a edição das duas planilhas
-                aba_rest, aba_ug = st.tabs(["Restrições", "UGs"])
-                
-                with aba_rest:
-                    st.info("Edite os campos, adicione linhas no final ou exclua linhas selecionando a lateral e apertando Delete.")
-                    df_rest_editado = st.data_editor(
-                        df_rest_bruto, 
-                        num_rows="dynamic", 
-                        use_container_width=True, 
-                        key="editor_rest"
-                    )
-                    
-                with aba_ug:
-                    df_ug_editado = st.data_editor(
-                        df_ug_bruto, 
-                        num_rows="dynamic", 
-                        use_container_width=True, 
-                        key="editor_ug"
-                    )
-                
-                # Botão para sobrescrever o arquivo base.xlsx permanentemente
-                if st.button("💾 Salvar Alterações na Planilha", type="primary", use_container_width=True):
-                    try:
-                        with pd.ExcelWriter(arquivo, engine="openpyxl") as writer:
-                            df_ug_editado.to_excel(writer, sheet_name="ug", index=False)
-                            df_rest_editado.to_excel(writer, sheet_name="restrições", index=False)
-                            
-                        # Limpa o cache principal para o programa puxar a nova base de dados imediatamente
-                        st.cache_data.clear()
-                        st.success("Planilha atualizada permanentemente!")
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"Erro crítico ao salvar o Excel: {e}")
+            with aba_ug:
+                df_ug_editado = st.data_editor(
+                    df_ug_bruto, 
+                    num_rows="dynamic", 
+                    use_container_width=True, 
+                    height=400,
+                    key="editor_ug"
+                )
+            
+            if st.button("💾 Salvar Alterações na Planilha", type="primary", use_container_width=True):
+                try:
+                    with pd.ExcelWriter(arquivo, engine="openpyxl") as writer:
+                        df_ug_editado.to_excel(writer, sheet_name="ug", index=False)
+                        df_rest_editado.to_excel(writer, sheet_name="restrições", index=False)
                         
-            except Exception as e:
-                st.error(f"Erro ao ler a planilha base: {e}")
+                    st.cache_data.clear()
+                    st.success("Planilha atualizada permanentemente!")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Erro crítico ao salvar o Excel: {e}")
+                    
+        except Exception as e:
+            st.error(f"Erro ao ler a planilha base: {e}")
+            
+    st.divider()
+
 
 # --- 2. EXTRAÇÃO DE DADOS PRINCIPAL ---
 @st.cache_data
@@ -87,6 +90,7 @@ def carregar_dados_planilha():
         
     except Exception as e:
         return [], {}
+
 
 # --- 3. GERAÇÃO DO PDF ---
 def gerar_pdf_mensagens(df_dash, dict_rest, data_ref_str, mes_ant_nome, ano_ant_str):
@@ -146,6 +150,7 @@ def gerar_pdf_mensagens(df_dash, dict_rest, data_ref_str, mes_ant_nome, ano_ant_
         
     return bytes(pdf.output())
 
+
 # --- 4. FLUXO PRINCIPAL DA APLICAÇÃO ---
 lista_ugs, dict_restricoes = carregar_dados_planilha()
 
@@ -156,7 +161,8 @@ if not lista_ugs or not dict_restricoes:
 if 'restricoes_aplicadas' not in st.session_state:
     st.session_state.restricoes_aplicadas = {}
 
-st.divider()
+if not admin_mode:
+    st.divider()
 
 col_data1, col_data2 = st.columns(2)
 with col_data1:
@@ -236,8 +242,8 @@ if st.button("Gerar Dashboard e Relatórios", use_container_width=True):
     
     st.dataframe(df_dashboard, use_container_width=True, hide_index=True)
     
-    # --- VISUALIZAÇÃO DO PDF NA TELA ---
-    st.markdown("### Documento de Mensagens")
+    # --- DOWNLOAD DO PDF DIRETO ---
+    st.markdown("### Exportar Documentos")
     
     pdf_bytes = gerar_pdf_mensagens(
         df_dash=df_dashboard,
@@ -247,9 +253,13 @@ if st.button("Gerar Dashboard e Relatórios", use_container_width=True):
         ano_ant_str=ano_anterior_str
     )
     
-    b64_pdf = base64.b64encode(pdf_bytes).decode('utf-8')
-    pdf_display = f'<iframe src="data:application/pdf;base64,{b64_pdf}" width="100%" height="800" type="application/pdf"></iframe>'
-    st.markdown(pdf_display, unsafe_allow_html=True)
+    st.download_button(
+        label="📄 Baixar Mensagens (PDF)",
+        data=pdf_bytes,
+        file_name=f"Mensagens_Conformidade_{mes_anterior_pt}_{ano_anterior_str}.pdf",
+        mime="application/pdf",
+        type="primary"
+    )
     
     st.write("") 
     if st.button("Nova Análise (Limpar Memória)"):
