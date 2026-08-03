@@ -6,7 +6,7 @@ from fpdf import FPDF
 
 st.set_page_config(page_title="Mapa de Restrições", layout="wide")
 
-# Dicionário para forçar o mês em português (evita bugs de locale no servidor)
+# Dicionário para forçar o mês em português
 MESES_PT = {
     1: "Janeiro", 2: "Fevereiro", 3: "Março", 4: "Abril",
     5: "Maio", 6: "Junho", 7: "Julho", 8: "Agosto",
@@ -59,9 +59,8 @@ def gerar_pdf_mensagens(df_dash, dict_rest, data_ref_str, mes_ant_nome, ano_ant_
         mensagem = (
             f"UG {ug_numero}\n"
             f"Conforme estabelecido no calendário de fechamento mensal, disponível na transação CONFECMES do SIAFI Web, "
-            f"a data limite para o registro da Conformidade Contábil de UG do mês de {mes_ant_nome} de {ano_ant_str} é a seguinte:\n\n"
-            f"Conformidade Contábil de UG: ----------------- Data Limite: {data_ref_str}\n\n"
-            f"Esclarecemos que a respectiva conformidade deverá ser registrada no sistema SIAFIWeb 2025 no dia {data_ref_str}, "
+            f"a data limite para o registro da Conformidade Contábil de UG do mês de {mes_ant_nome.lower()} de {ano_ant_str} é {data_ref_str}\n\n"
+            f"Esclarecemos que a respectiva conformidade deverá ser registrada no sistema SIAFIWeb {ano_ant_str} no dia {data_ref_str}, "
             f"de preferência até as 14:00 horas, por meio da transação CONCONFCON, com os códigos: {codigos_aplicados}.\n\n"
             f"{restricoes_com_desc}\n"
             f"Lembramos que, na nova funcionalidade do SIAFI Web (transação \"CONCONFCON\"), o registro da Conformidade Contábil só é finalizado "
@@ -93,7 +92,6 @@ def gerar_pdf_mensagens(df_dash, dict_rest, data_ref_str, mes_ant_nome, ano_ant_
     else:
         pdf.cell(0, 10, "Nenhuma UG classificada como Sem Restrição.")
         
-    # CORREÇÃO: Forçando a conversão de bytearray para bytes
     return bytes(pdf.output())
 
 st.title("Mapa de Restrições por UG")
@@ -112,7 +110,6 @@ st.divider()
 # Configuração de Datas
 col_data1, col_data2 = st.columns(2)
 with col_data1:
-    # CORREÇÃO: Novo rótulo do campo
     data_fechamento = st.date_input("Data da Conformidade Contábil", value=date.today(), format="DD/MM/YYYY")
     
 data_anterior = data_fechamento - relativedelta(months=1)
