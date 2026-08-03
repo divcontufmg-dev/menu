@@ -2,32 +2,101 @@ import streamlit as st
 import pandas as pd
 from datetime import date
 from dateutil.relativedelta import relativedelta
+import io
+from fpdf import FPDF
 
 st.set_page_config(page_title="Mapa de Restrições", layout="wide")
+
+# Dicionário para forçar o mês em português (evita bugs de locale no servidor)
+MESES_PT = {
+    1: "Janeiro", 2: "Fevereiro", 3: "Março", 4: "Abril",
+    5: "Maio", 6: "Junho", 7: "Julho", 8: "Agosto",
+    9: "Setembro", 10: "Outubro", 11: "Novembro", 12: "Dezembro"
+}
 
 # 1. Função de Extração de Dados
 @st.cache_data
 def carregar_dados_planilha():
-    arquivo = "base.xlsx" # Lembre-se de alterar para .xlsm se tiver macros
-    
+    arquivo = "base.xlsx"
     try:
         df_ugs = pd.read_excel(arquivo, sheet_name="ug")
         df_restricoes = pd.read_excel(arquivo, sheet_name="restrições")
         
-        # Prevenção de renderização de zeros em campos nulos
         df_ugs = df_ugs.fillna("").replace(0, "")
         df_restricoes = df_restricoes.fillna("").replace(0, "")
         
         lista_ugs = [str(ug) for ug in df_ugs.iloc[:, 0].tolist() if str(ug).strip() != ""]
-        
-        # CORREÇÃO 1: Forçando que as chaves (restrições) e valores (descrições) sejam lidos 100% como texto
         dict_restricoes = {str(k): str(v) for k, v in zip(df_restricoes.iloc[:, 0], df_restricoes.iloc[:, 1])}
         
         return lista_ugs, dict_restricoes
         
     except Exception as e:
-        st.error(f"Erro ao ler o arquivo {arquivo}. Verifique se as abas 'UG' e 'RESTRIÇÕES' existem. Detalhes: {e}")
+        st.error(f"Erro ao ler o arquivo {arquivo}. Detalhes: {e}")
         return [], {}
+
+# 2. Função de Geração do PDF
+def gerar_pdf_mensagens(df_dash, dict_rest, data_ref_str, mes_ant_nome, ano_ant_str):
+    pdf = FPDF()
+    pdf.set_auto_page_break(auto=True, margin=15)
+    
+    ugs_com_restricao = df_dash[df_dash["Situação"] == "Com Restrição"]
+    ugs_sem_restricao = df_dash[df_dash["Situação"] == "Sem Restrição"]["UG"].tolist()
+    
+    # Adiciona as páginas de mensagens (uma por UG ou sequenciais)
+    pdf.add_page()
+    pdf.set_font("helvetica", size=11)
+    
+    for _, row in ugs_com_restricao.iterrows():
+        ug_numero = row["UG"]
+        codigos_aplicados = str(row["Restrições Aplicadas"])
+        lista_codigos = [c.strip() for c in codigos_aplicados.split(',')]
+        
+        # Monta a lista de descrições com asterisco
+        restricoes_com_desc = ""
+        for cod in lista_codigos:
+            descricao = dict_rest.get(cod, "Descrição não encontrada")
+            restricoes_com_desc += f"* {cod} -> {descricao}\n"
+            
+        # Corpo da mensagem espelhado do VBA original
+        mensagem = (
+            f"UG {ug_numero}\n"
+            f"Conforme estabelecido no calendário de fechamento mensal, disponível na transação CONFECMES do SIAFI Web, "
+            f"a data limite para o registro da Conformidade Contábil de UG do mês de {mes_ant_nome} de {ano_ant_str} é a seguinte:\n\n"
+            f"Conformidade Contábil de UG: ----------------- Data Limite: {data_ref_str}\n\n"
+            f"Esclarecemos que a respectiva conformidade deverá ser registrada no sistema SIAFIWeb 2025 no dia {data_ref_str}, "
+            f"de preferência até as 14:00 horas, por meio da transação CONCONFCON, com os códigos: {codigos_aplicados}.\n\n"
+            f"{restricoes_com_desc}\n"
+            f"Lembramos que, na nova funcionalidade do SIAFI Web (transação \"CONCONFCON\"), o registro da Conformidade Contábil só é finalizado "
+            f"com o registro posterior à inclusão das restrições (em caso de ocorrência). Isto é, além de adicionar as restrições e salvar, "
+            f"é preciso fazer a confirmação clicando no ícone \"Registrar Conformidade\" no rodapé da transação.\n\n"
+            f"O passo a passo para registro da Conformidade Contábil poderá ser acessado por meio do link: "
+            f"https://www.ufmg.br/proplan/wp-content/uploads/2024/02/Manual-Conformidade-Contabil-SIAFI-WEB-2024.pdf\n\n"
+            f"Atenciosamente,\n\n"
+            f"ELÍZIO MARCOS DOS REIS\n"
+            f"Diretor do Departamento de Contabilidade e Finanças /PROPLAN/UFMG\n\n"
+            f"- ATENÇÃO: Para sua segurança, sempre verifique a autenticidade de links.\n"
+        )
+        
+        # Escreve o bloco de texto formatado
+        pdf.multi_cell(0, 5, mensagem)
+        pdf.ln(10) # Espaço entre mensagens. Se preferir 1 por página, use pdf.add_page()
+        pdf.line(10, pdf.get_y(), 200, pdf.get_y()) # Linha divisória
+        pdf.ln(10)
+    
+    # Adiciona a última página com a lista de UGs sem restrição
+    pdf.add_page()
+    pdf.set_font("helvetica", style="B", size=14)
+    pdf.cell(0, 10, "Relação de UGs Sem Restrição", ln=True, align="C")
+    pdf.ln(10)
+    
+    pdf.set_font("helvetica", size=12)
+    if ugs_sem_restricao:
+        lista_formatada = ", ".join(ugs_sem_restricao)
+        pdf.multi_cell(0, 6, lista_formatada)
+    else:
+        pdf.cell(0, 10, "Nenhuma UG classificada como Sem Restrição.")
+        
+    return pdf.output()
 
 st.title("Mapa de Restrições por UG")
 
@@ -37,26 +106,27 @@ if not lista_ugs or not dict_restricoes:
     st.warning("Aguardando carregamento da base de dados...")
     st.stop() 
 
-# Inicialização da memória de estado
 if 'restricoes_aplicadas' not in st.session_state:
     st.session_state.restricoes_aplicadas = {}
 
 st.divider()
 
-# Data de Fechamento
+# Configuração de Datas com o Mês em Português
 col_data1, col_data2 = st.columns(2)
 with col_data1:
     data_fechamento = st.date_input("Data de Fechamento", value=date.today(), format="DD/MM/YYYY")
     
 data_anterior = data_fechamento - relativedelta(months=1)
+mes_anterior_pt = MESES_PT[data_anterior.month]
+ano_anterior_str = str(data_anterior.year)
+data_fech_str = data_fechamento.strftime('%d/%m/%Y')
+
 with col_data2:
-    st.info(f"**Mês de Referência para Análise:** {data_anterior.strftime('%B / %Y')}")
+    st.info(f"**Mês de Referência para Análise:** {mes_anterior_pt} / {ano_anterior_str}")
 
 st.divider()
 
-# ALTERAÇÃO DE LAYOUT: UG e Busca lado a lado no topo
 col_selecao, col_busca = st.columns(2)
-
 with col_selecao:
     ug_selecionada = st.selectbox("Selecione a UG:", lista_ugs)
     
@@ -66,12 +136,10 @@ with col_busca:
 st.write(f"**Marque as restrições para a UG {ug_selecionada}:**")
 restricoes_marcadas = []
 
-# ALTERAÇÃO DE LAYOUT: Distribuindo as restrições horizontalmente em 3 colunas
 colunas_checkbox = st.columns(3)
 
-# O enumerate nos ajuda a distribuir os itens ciclicamente entre as 3 colunas
 for indice, (restricao, descricao) in enumerate(dict_restricoes.items()):
-    coluna_atual = colunas_checkbox[indice % 3] # Distribui entre coluna 0, 1 e 2 alternadamente
+    coluna_atual = colunas_checkbox[indice % 3]
     
     destaque = ""
     if busca:
@@ -82,30 +150,25 @@ for indice, (restricao, descricao) in enumerate(dict_restricoes.items()):
         if st.checkbox(restricao + destaque, help=descricao, key=f"chk_{ug_selecionada}_{restricao}"):
             restricoes_marcadas.append(restricao)
             
-# Confirmação Individual
-st.write("") # Espaço extra
+st.write("") 
 if st.button("Confirmar UG", type="primary"):
     if restricoes_marcadas:
         st.session_state.restricoes_aplicadas[ug_selecionada] = restricoes_marcadas
     else:
         st.session_state.restricoes_aplicadas[ug_selecionada] = ["SEM RESTRIÇÃO"]
-        
     st.success(f"Log registrado para a UG: {ug_selecionada}")
 
-# Área de exibição de Log
 if st.session_state.restricoes_aplicadas:
     st.write("### UGs processadas até o momento")
     resumo_texto = ""
     for ug, rests in st.session_state.restricoes_aplicadas.items():
-        # CORREÇÃO 2: Garantindo que todos os itens dentro de 'rests' virem string antes do join
         resumo_texto += f"• UG {ug}: {', '.join(str(r) for r in rests)}\n"
     
     st.text_area("Acompanhamento:", value=resumo_texto, height=150, disabled=True)
 
 st.divider()
 
-# Finalização e Relatório
-if st.button("Gerar Dashboard de Restrições", use_container_width=True):
+if st.button("Gerar Dashboard e Relatórios", use_container_width=True):
     dados_dashboard = []
     
     for ug in lista_ugs:
@@ -114,27 +177,36 @@ if st.button("Gerar Dashboard de Restrições", use_container_width=True):
         dados_dashboard.append({
             "UG": ug,
             "Situação": "Sem Restrição" if restricoes == ["SEM RESTRIÇÃO"] else "Com Restrição",
-            # CORREÇÃO 3: Garantindo string aqui também
             "Restrições Aplicadas": ", ".join(str(r) for r in restricoes)
         })
         
-    df_dashboard = pd.DataFrame(dados_dashboard)
-    
-    # Tratamento final antes da exibição
-    df_dashboard = df_dashboard.fillna("").replace(0, "")
-    
-    total_analisadas = len(df_dashboard)
-    total_com_restricao = len(df_dashboard[df_dashboard["Situação"] == "Com Restrição"])
-    total_sem_restricao = len(df_dashboard[df_dashboard["Situação"] == "Sem Restrição"])
+    df_dashboard = pd.DataFrame(dados_dashboard).fillna("").replace(0, "")
     
     st.subheader("Painel Geral de Conformidade")
-    
-    col_metrica1, col_metrica2, col_metrica3 = st.columns(3)
-    col_metrica1.metric("Total de UGs da Base", total_analisadas)
-    col_metrica2.metric("Com Restrição", total_com_restricao)
-    col_metrica3.metric("Sem Restrição", total_sem_restricao)
+    col_m1, col_m2, col_m3 = st.columns(3)
+    col_m1.metric("Total de UGs da Base", len(df_dashboard))
+    col_m2.metric("Com Restrição", len(df_dashboard[df_dashboard["Situação"] == "Com Restrição"]))
+    col_m3.metric("Sem Restrição", len(df_dashboard[df_dashboard["Situação"] == "Sem Restrição"]))
     
     st.dataframe(df_dashboard, use_container_width=True, hide_index=True)
+    
+    # --- GERAÇÃO E DOWNLOAD DO PDF ---
+    st.markdown("### Exportar Documentos")
+    pdf_bytes = gerar_pdf_mensagens(
+        df_dash=df_dashboard,
+        dict_rest=dict_restricoes,
+        data_ref_str=data_fech_str,
+        mes_ant_nome=mes_anterior_pt,
+        ano_ant_str=ano_anterior_str
+    )
+    
+    st.download_button(
+        label="📄 Baixar Mensagens (PDF)",
+        data=pdf_bytes,
+        file_name=f"Mensagens_Conformidade_{mes_anterior_pt}_{ano_anterior_str}.pdf",
+        mime="application/pdf",
+        type="primary"
+    )
     
     if st.button("Nova Análise (Limpar Memória)"):
         st.session_state.restricoes_aplicadas = {}
