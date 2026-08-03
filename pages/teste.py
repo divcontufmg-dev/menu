@@ -13,8 +13,8 @@ def carregar_dados_planilha():
     arquivo = os.path.join(caminho_raiz, "base.xlsx")
     
     try:
-        df_ugs = pd.read_excel(arquivo, sheet_name="UG")
-        df_restricoes = pd.read_excel(arquivo, sheet_name="RESTRIÇÕES")
+        df_ugs = pd.read_excel(arquivo, sheet_name="ug")
+        df_restricoes = pd.read_excel(arquivo, sheet_name="restrições")
         
         # Prevenção de renderização de zeros em campos nulos
         df_ugs = df_ugs.fillna("").replace(0, "")
