@@ -5,7 +5,24 @@ from dateutil.relativedelta import relativedelta
 from fpdf import FPDF
 import openpyxl
 
+# ==========================================
+# CONFIGURAÇÃO INICIAL E MEMÓRIA
+# ==========================================
 st.set_page_config(page_title="Mapa de Restrições", layout="wide")
+
+# Oculta marcas do Streamlit e a barra lateral
+hide_streamlit_style = """
+            <style>
+            #MainMenu {visibility: hidden;}
+            footer {visibility: hidden;}
+            header {visibility: hidden;}
+            [data-testid="stSidebar"] {display: none;}
+            [data-testid="collapsedControl"] {display: none;}
+            </style>
+            """
+st.markdown(hide_streamlit_style, unsafe_allow_html=True)
+
+st.page_link("Menu_principal.py", label="⬅️ Voltar ao Menu Inicial")
 
 MESES_PT = {
     1: "Janeiro", 2: "Fevereiro", 3: "Março", 4: "Abril",
@@ -13,19 +30,14 @@ MESES_PT = {
     9: "Setembro", 10: "Outubro", 11: "Novembro", 12: "Dezembro"
 }
 
-# --- MENU LATERAL (SIDEBAR) ---
-# Exclusivo para navegação de retorno ao menu principal
-with st.sidebar:
-    st.page_link("Menu_principal.py", label="Voltar ao Menu Principal", icon="⬅️")
-
-# --- 1. MÓDULO DE ADMINISTRAÇÃO (TOPO DIREITO) ---
+# --- MÓDULO DE ADMINISTRAÇÃO (TOPO DIREITO) ---
 col_titulo, col_toggle = st.columns([8, 2])
 
 with col_titulo:
     st.title("Mapa de Restrições por UG")
 
 with col_toggle:
-    st.write("") # Espaçamento para alinhar com o título
+    st.write("") # Espaçamento para alinhar com o título verticalmente
     admin_mode = st.toggle("⚙️ Modo Admin")
 
 if admin_mode:
@@ -41,7 +53,7 @@ if admin_mode:
             aba_rest, aba_ug = st.tabs(["Restrições", "UGs"])
             
             with aba_rest:
-                st.info("Edite os campos, adicione linhas no final ou exclua linhas selecionando a lateral e apertando Delete.")
+                st.info("Edite os campos, adicione linhas no final ou exclua selecionando a lateral e apertando Delete.")
                 df_rest_editado = st.data_editor(
                     df_rest_bruto, 
                     num_rows="dynamic", 
@@ -77,7 +89,9 @@ if admin_mode:
     st.divider()
 
 
-# --- 2. EXTRAÇÃO DE DADOS PRINCIPAL ---
+# ==========================================
+# EXTRAÇÃO DE DADOS PRINCIPAL
+# ==========================================
 @st.cache_data
 def carregar_dados_planilha():
     arquivo = "base.xlsx"
@@ -97,7 +111,9 @@ def carregar_dados_planilha():
         return [], {}
 
 
-# --- 3. GERAÇÃO DO PDF ---
+# ==========================================
+# GERAÇÃO DO PDF
+# ==========================================
 def gerar_pdf_mensagens(df_dash, dict_rest, data_ref_str, mes_ant_nome, ano_ant_str):
     pdf = FPDF()
     pdf.set_auto_page_break(auto=True, margin=15)
@@ -156,7 +172,9 @@ def gerar_pdf_mensagens(df_dash, dict_rest, data_ref_str, mes_ant_nome, ano_ant_
     return bytes(pdf.output())
 
 
-# --- 4. FLUXO PRINCIPAL DA APLICAÇÃO ---
+# ==========================================
+# FLUXO PRINCIPAL DA APLICAÇÃO
+# ==========================================
 lista_ugs, dict_restricoes = carregar_dados_planilha()
 
 if not lista_ugs or not dict_restricoes:
