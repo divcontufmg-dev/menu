@@ -9,7 +9,7 @@ import io
 # CONFIGURAÇÃO INICIAL E MEMÓRIA
 # ==========================================
 st.set_page_config(
-    page_title="Conciliador: Acervo Bibliográfico",
+    page_title="Conciliador: Acervo Bibliográfico RESERVA",
     page_icon="📚",
     layout="wide"
 )
