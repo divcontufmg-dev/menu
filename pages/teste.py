@@ -13,16 +13,17 @@ MESES_PT = {
     9: "Setembro", 10: "Outubro", 11: "Novembro", 12: "Dezembro"
 }
 
-# --- 1. MÓDULO DE ADMINISTRAÇÃO ---
-col_titulo, col_toggle = st.columns([8, 2])
-
-with col_titulo:
-    st.title("Mapa de Restrições por UG")
-
-with col_toggle:
-    st.write("") # Espaçamento para alinhar com o título
+# --- MENU LATERAL (SIDEBAR) ---
+with st.sidebar:
+    st.header("Parâmetros")
+    data_fechamento = st.date_input("Data da Conformidade Contábil", value=date.today(), format="DD/MM/YYYY")
+    
+    st.divider()
+    
+    st.header("Administração")
     admin_mode = st.toggle("⚙️ Modo Admin")
 
+# --- MÓDULO DE ADMINISTRAÇÃO ---
 if admin_mode:
     st.markdown("### Gerenciador do Banco de Dados (Excel)")
     senha = st.text_input("Senha de acesso:", type="password", key="senha_admin")
@@ -71,8 +72,7 @@ if admin_mode:
             
     st.divider()
 
-
-# --- 2. EXTRAÇÃO DE DADOS PRINCIPAL ---
+# --- EXTRAÇÃO DE DADOS PRINCIPAL ---
 @st.cache_data
 def carregar_dados_planilha():
     arquivo = "base.xlsx"
@@ -91,8 +91,7 @@ def carregar_dados_planilha():
     except Exception as e:
         return [], {}
 
-
-# --- 3. GERAÇÃO DO PDF ---
+# --- GERAÇÃO DO PDF ---
 def gerar_pdf_mensagens(df_dash, dict_rest, data_ref_str, mes_ant_nome, ano_ant_str):
     pdf = FPDF()
     pdf.set_auto_page_break(auto=True, margin=15)
@@ -150,8 +149,9 @@ def gerar_pdf_mensagens(df_dash, dict_rest, data_ref_str, mes_ant_nome, ano_ant_
         
     return bytes(pdf.output())
 
+# --- FLUXO PRINCIPAL DA APLICAÇÃO ---
+st.title("Mapa de Restrições por UG")
 
-# --- 4. FLUXO PRINCIPAL DA APLICAÇÃO ---
 lista_ugs, dict_restricoes = carregar_dados_planilha()
 
 if not lista_ugs or not dict_restricoes:
@@ -161,21 +161,13 @@ if not lista_ugs or not dict_restricoes:
 if 'restricoes_aplicadas' not in st.session_state:
     st.session_state.restricoes_aplicadas = {}
 
-if not admin_mode:
-    st.divider()
-
-col_data1, col_data2 = st.columns(2)
-with col_data1:
-    data_fechamento = st.date_input("Data da Conformidade Contábil", value=date.today(), format="DD/MM/YYYY")
-    
+# Processamento da Data (Vinda do Menu Lateral)
 data_anterior = data_fechamento - relativedelta(months=1)
 mes_anterior_pt = MESES_PT[data_anterior.month]
 ano_anterior_str = str(data_anterior.year)
 data_fech_str = data_fechamento.strftime('%d/%m/%Y')
 
-with col_data2:
-    st.info(f"**Mês de Referência para Análise:** {mes_anterior_pt} / {ano_anterior_str}")
-
+st.info(f"**Mês de Referência para Análise:** {mes_anterior_pt} / {ano_anterior_str}")
 st.divider()
 
 col_selecao, col_busca = st.columns(2)
@@ -242,7 +234,6 @@ if st.button("Gerar Dashboard e Relatórios", use_container_width=True):
     
     st.dataframe(df_dashboard, use_container_width=True, hide_index=True)
     
-    # --- DOWNLOAD DO PDF DIRETO ---
     st.markdown("### Exportar Documentos")
     
     pdf_bytes = gerar_pdf_mensagens(
