@@ -3,17 +3,73 @@ import pandas as pd
 from datetime import date
 from dateutil.relativedelta import relativedelta
 from fpdf import FPDF
+import base64
+import openpyxl
 
 st.set_page_config(page_title="Mapa de Restrições", layout="wide")
 
-# Dicionário para forçar o mês em português
 MESES_PT = {
     1: "Janeiro", 2: "Fevereiro", 3: "Março", 4: "Abril",
     5: "Maio", 6: "Junho", 7: "Julho", 8: "Agosto",
     9: "Setembro", 10: "Outubro", 11: "Novembro", 12: "Dezembro"
 }
 
-# 1. Função de Extração de Dados
+# --- 1. MÓDULO DE ADMINISTRAÇÃO (TOPO DIREITO) ---
+col_titulo, col_ajustes = st.columns([8, 3])
+
+with col_titulo:
+    st.title("Mapa de Restrições por UG")
+
+with col_ajustes:
+    with st.expander("⚙️ Ajustes do Sistema"):
+        senha = st.text_input("Senha de acesso:", type="password", key="senha_admin")
+        if senha == "dcfdc":
+            st.markdown("**Gerenciador do Banco de Dados (Excel)**")
+            
+            try:
+                # Carrega a planilha bruta sem cache para a edição
+                arquivo = "base.xlsx"
+                df_ug_bruto = pd.read_excel(arquivo, sheet_name="ug")
+                df_rest_bruto = pd.read_excel(arquivo, sheet_name="restrições")
+                
+                # Cria abas para organizar a edição das duas planilhas
+                aba_rest, aba_ug = st.tabs(["Restrições", "UGs"])
+                
+                with aba_rest:
+                    st.info("Edite os campos, adicione linhas no final ou exclua linhas selecionando a lateral e apertando Delete.")
+                    df_rest_editado = st.data_editor(
+                        df_rest_bruto, 
+                        num_rows="dynamic", 
+                        use_container_width=True, 
+                        key="editor_rest"
+                    )
+                    
+                with aba_ug:
+                    df_ug_editado = st.data_editor(
+                        df_ug_bruto, 
+                        num_rows="dynamic", 
+                        use_container_width=True, 
+                        key="editor_ug"
+                    )
+                
+                # Botão para sobrescrever o arquivo base.xlsx permanentemente
+                if st.button("💾 Salvar Alterações na Planilha", type="primary", use_container_width=True):
+                    try:
+                        with pd.ExcelWriter(arquivo, engine="openpyxl") as writer:
+                            df_ug_editado.to_excel(writer, sheet_name="ug", index=False)
+                            df_rest_editado.to_excel(writer, sheet_name="restrições", index=False)
+                            
+                        # Limpa o cache principal para o programa puxar a nova base de dados imediatamente
+                        st.cache_data.clear()
+                        st.success("Planilha atualizada permanentemente!")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Erro crítico ao salvar o Excel: {e}")
+                        
+            except Exception as e:
+                st.error(f"Erro ao ler a planilha base: {e}")
+
+# --- 2. EXTRAÇÃO DE DADOS PRINCIPAL ---
 @st.cache_data
 def carregar_dados_planilha():
     arquivo = "base.xlsx"
@@ -30,10 +86,9 @@ def carregar_dados_planilha():
         return lista_ugs, dict_restricoes
         
     except Exception as e:
-        st.error(f"Erro ao ler o arquivo {arquivo}. Detalhes: {e}")
         return [], {}
 
-# 2. Função de Geração do PDF
+# --- 3. GERAÇÃO DO PDF ---
 def gerar_pdf_mensagens(df_dash, dict_rest, data_ref_str, mes_ant_nome, ano_ant_str):
     pdf = FPDF()
     pdf.set_auto_page_break(auto=True, margin=15)
@@ -41,7 +96,6 @@ def gerar_pdf_mensagens(df_dash, dict_rest, data_ref_str, mes_ant_nome, ano_ant_
     ugs_com_restricao = df_dash[df_dash["Situação"] == "Com Restrição"]
     ugs_sem_restricao = df_dash[df_dash["Situação"] == "Sem Restrição"]["UG"].tolist()
     
-    # Adiciona as páginas de mensagens
     pdf.add_page()
     pdf.set_font("helvetica", size=11)
     
@@ -50,7 +104,6 @@ def gerar_pdf_mensagens(df_dash, dict_rest, data_ref_str, mes_ant_nome, ano_ant_
         codigos_aplicados = str(row["Restrições Aplicadas"])
         lista_codigos = [c.strip() for c in codigos_aplicados.split(',')]
         
-        # Monta a lista de descrições com asterisco
         restricoes_com_desc = ""
         for cod in lista_codigos:
             descricao = dict_rest.get(cod, "Descrição não encontrada")
@@ -79,7 +132,6 @@ def gerar_pdf_mensagens(df_dash, dict_rest, data_ref_str, mes_ant_nome, ano_ant_
         pdf.line(10, pdf.get_y(), 200, pdf.get_y())
         pdf.ln(10)
     
-    # Adiciona a última página com a lista de UGs sem restrição
     pdf.add_page()
     pdf.set_font("helvetica", style="B", size=14)
     pdf.cell(0, 10, "Relação de UGs Sem Restrição", ln=True, align="C")
@@ -94,12 +146,11 @@ def gerar_pdf_mensagens(df_dash, dict_rest, data_ref_str, mes_ant_nome, ano_ant_
         
     return bytes(pdf.output())
 
-st.title("Mapa de Restrições por UG")
-
+# --- 4. FLUXO PRINCIPAL DA APLICAÇÃO ---
 lista_ugs, dict_restricoes = carregar_dados_planilha()
 
 if not lista_ugs or not dict_restricoes:
-    st.warning("Aguardando carregamento da base de dados...")
+    st.warning("Não foi possível carregar a base de dados principal. Verifique o arquivo base.xlsx.")
     st.stop() 
 
 if 'restricoes_aplicadas' not in st.session_state:
@@ -107,7 +158,6 @@ if 'restricoes_aplicadas' not in st.session_state:
 
 st.divider()
 
-# Configuração de Datas
 col_data1, col_data2 = st.columns(2)
 with col_data1:
     data_fechamento = st.date_input("Data da Conformidade Contábil", value=date.today(), format="DD/MM/YYYY")
@@ -186,8 +236,9 @@ if st.button("Gerar Dashboard e Relatórios", use_container_width=True):
     
     st.dataframe(df_dashboard, use_container_width=True, hide_index=True)
     
-    # --- GERAÇÃO E DOWNLOAD DO PDF ---
-    st.markdown("### Exportar Documentos")
+    # --- VISUALIZAÇÃO DO PDF NA TELA ---
+    st.markdown("### Documento de Mensagens")
+    
     pdf_bytes = gerar_pdf_mensagens(
         df_dash=df_dashboard,
         dict_rest=dict_restricoes,
@@ -196,14 +247,11 @@ if st.button("Gerar Dashboard e Relatórios", use_container_width=True):
         ano_ant_str=ano_anterior_str
     )
     
-    st.download_button(
-        label="📄 Baixar Mensagens (PDF)",
-        data=pdf_bytes,
-        file_name=f"Mensagens_Conformidade_{mes_anterior_pt}_{ano_anterior_str}.pdf",
-        mime="application/pdf",
-        type="primary"
-    )
+    b64_pdf = base64.b64encode(pdf_bytes).decode('utf-8')
+    pdf_display = f'<iframe src="data:application/pdf;base64,{b64_pdf}" width="100%" height="800" type="application/pdf"></iframe>'
+    st.markdown(pdf_display, unsafe_allow_html=True)
     
+    st.write("") 
     if st.button("Nova Análise (Limpar Memória)"):
         st.session_state.restricoes_aplicadas = {}
         st.rerun()
