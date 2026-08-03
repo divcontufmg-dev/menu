@@ -1,7 +1,7 @@
 import streamlit as st
 import re
 
-# Oculta marcas do Streamlit e a barra lateral (Padrão do seu repositório)
+# Oculta marcas do Streamlit e a barra lateral
 hide_streamlit_style = """
             <style>
             #MainMenu {visibility: hidden;}
@@ -15,7 +15,7 @@ st.markdown(hide_streamlit_style, unsafe_allow_html=True)
 st.page_link("Menu_principal.py", label="⬅️ Voltar ao Menu Inicial")
 
 st.title("🤖 Automação SIAFI: Inserção em Lote")
-st.markdown("Como o sistema roda na nuvem, utilize esta ferramenta para gerar um script seguro que digitará as UGs automaticamente no módulo Comunica.")
+st.markdown("Como o sistema roda em nuvem e o SIAFI bloqueia scripts de navegador, esta ferramenta gera um executável nativo do Windows para digitar as UGs pelo seu teclado.")
 
 st.divider()
 
@@ -29,13 +29,13 @@ with col_input:
         placeholder="Ex: 153254, 153255, 153256,\n153280, 153281..."
     )
     
-    gerar = st.button("Gerar Código de Automação", type="primary", use_container_width=True)
+    gerar = st.button("Gerar Arquivo de Automação", type="primary", use_container_width=True)
 
 with col_output:
-    st.subheader("2. Código Gerado")
+    st.subheader("2. Arquivo Gerado")
     
     if gerar and texto_ugs:
-        # Extrai apenas números que tenham pelo menos 5 dígitos (para evitar pegar números de página soltos)
+        # Extrai apenas números com 5 ou 6 dígitos
         lista_ugs = re.findall(r'\b\d{5,6}\b', texto_ugs)
         
         if not lista_ugs:
@@ -43,39 +43,30 @@ with col_output:
         else:
             st.success(f"✅ {len(lista_ugs)} UGs identificadas!")
             
-            # Formata a lista para o JavaScript
-            array_js = str(lista_ugs)
+            # --- CONSTRUÇÃO DO SCRIPT NATIVO DO WINDOWS (VBS) ---
+            vbs_code = 'Set WshShell = WScript.CreateObject("WScript.Shell")\n'
+            vbs_code += 'WScript.Sleep 5000\n' # 5 segundos de pausa inicial para você clicar no SIAFI
             
-            # Script JavaScript que fará o papel do pyautogui direto no navegador
-            script_js = f"""
-// 1. Clique dentro do campo de destinatário no SIAFI antes de rodar!
-var ugs = {array_js};
-var i = 0;
-
-var timer = setInterval(function() {{
-    if(i >= ugs.length) {{
-        clearInterval(timer);
-        alert("Automação Concluída! " + i + " UGs inseridas.");
-        return;
-    }}
-    
-    var campo = document.activeElement;
-    campo.value = ugs[i];
-    
-    // Simula a digitação para o sistema reconhecer
-    campo.dispatchEvent(new Event("input", {{ bubbles: true }}));
-    
-    // Simula o aperto da tecla Enter
-    campo.dispatchEvent(new KeyboardEvent("keydown", {{ bubbles: true, key: "Enter", keyCode: 13 }}));
-    
-    i++;
-}}, 800); // 800 milissegundos de pausa entre cada UG
-            """
+            for ug in lista_ugs:
+                vbs_code += f'WshShell.SendKeys "{ug}"\n'
+                vbs_code += 'WScript.Sleep 500\n'         # Pausa antes do Enter
+                vbs_code += 'WshShell.SendKeys "{ENTER}"\n'
+                vbs_code += 'WScript.Sleep 1000\n'        # Pausa de 1 segundo para o SIAFI carregar
+                
+            # Converte a string para bytes para o botão de download
+            vbs_bytes = vbs_code.encode('utf-8')
             
-            st.code(script_js, language="javascript")
+            st.download_button(
+                label="⚙️ Baixar Robô de Digitação (.vbs)",
+                data=vbs_bytes,
+                file_name="digitar_siafi.vbs",
+                mime="text/plain",
+                type="primary",
+                use_container_width=True
+            )
             
             st.info("📋 **Como usar:** \n"
-                    "1. Clique no botão de copiar no canto superior direito do código acima.\n"
-                    "2. Vá para a tela do SIAFI Web e clique dentro do campo de destinatário.\n"
-                    "3. Aperte **F12** no teclado para abrir as ferramentas do desenvolvedor.\n"
-                    "4. Clique na aba **Console**, cole o código e aperte **Enter**.")
+                    "1. Baixe o arquivo `digitar_siafi.vbs`.\n"
+                    "2. Dê **dois cliques** no arquivo baixado.\n"
+                    "3. Você terá **5 segundos** para abrir o navegador e clicar dentro do campo de destinatário no SIAFI.\n"
+                    "4. Solte o mouse e aguarde. O Windows fará a digitação sozinho.")
