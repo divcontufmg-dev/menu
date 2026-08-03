@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+import os
 from datetime import date
 from dateutil.relativedelta import relativedelta
 
@@ -8,7 +9,8 @@ st.set_page_config(page_title="Mapa de Restrições", layout="wide")
 # 1. Função de Extração de Dados
 @st.cache_data
 def carregar_dados_planilha():
-    arquivo = "base.xlsx" 
+    caminho_raiz = os.path.dirname(os.path.dirname(__file__))
+    arquivo = os.path.join(caminho_raiz, "base.xlsx")
     
     try:
         df_ugs = pd.read_excel(arquivo, sheet_name="UG")
