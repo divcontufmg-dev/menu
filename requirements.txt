@@ -7,3 +7,5 @@ pytesseract
 pdf2image
 pillow
 xlsxwriter
+tesseract-ocr
+poppler-utils
