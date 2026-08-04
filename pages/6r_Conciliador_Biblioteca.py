@@ -105,9 +105,15 @@ def extrair_valor_pdf(pdf_bytes, texto_busca, texto_abrev=None, is_dep=False):
             elif encontrou_mes and re.match(r'^[\d\s\W]*TOTAL\b', line_clean.upper()):
                 condicao_total = True
         else:
-            padrao_dep = rf'^[\W\s]*{re.escape(texto_busca.upper())}'
-            if re.search(padrao_dep, line_clean.upper()):
-                condicao_mes = True
+            # ====================================================
+            # BLINDAGEM CONTRA CARACTERES INVISÍVEIS E DE LAYOUT
+            # ====================================================
+            linha_super_limpa = re.sub(r'[^\w/]', '', line_clean.upper())
+            busca_limpa = re.sub(r'[^\w/]', '', texto_busca.upper())
+            
+            if busca_limpa in linha_super_limpa:
+                if not re.search(r'(MÊS/ANO|PERÍODO|EMISSÃO)', linha_super_limpa):
+                    condicao_mes = True
                 
         if condicao_mes or condicao_total:
             if condicao_mes:
@@ -123,15 +129,19 @@ def extrair_valor_pdf(pdf_bytes, texto_busca, texto_abrev=None, is_dep=False):
                         break
                 else:
                     # ====================================================
-                    # 2. PROTEGER A QUEBRA DE BLOCO (BREAK)
-                    # Tolera pipes/espaços antes da próxima data para parar a leitura na hora certa
+                    # BLINDAGEM NA QUEBRA DO BLOCO (BREAK)
                     # ====================================================
-                    if re.match(r'^[\W\s]*(\d{2}/\d{4}|TOTAL|Pag\.|Página|Pergamum|Sistema|Emissão|Data)', proxima, re.IGNORECASE):
+                    proxima_limpa = re.sub(r'[^\w/]', '', proxima.upper())
+                    if re.search(r'(\d{2}/\d{4}|TOTAL|PAG|PÁGINA|PERGAMUM|SISTEMA|EMISSÃO|DATA)', proxima_limpa):
                         break
                 bloco_texto += " " + proxima
                 
+            # ====================================================
+            # CORREÇÕES DE NÚMEROS COLADOS/SEPARADOS (EX: 4810 colado)
+            # ====================================================
             bloco_texto = re.sub(r'(\.\d{3})(?=\d)', r'\1 ', bloco_texto)
             bloco_texto = re.sub(r'(\.)\s+(\d{3})', r'\1\2', bloco_texto)
+            
             matches = [m for m in re.findall(r'[\d\.,]+', bloco_texto) if any(c.isdigit() for c in m)]
             
             for m in reversed(matches):
@@ -186,8 +196,8 @@ with col_ano:
 idx_mes = meses.index(mes_selecionado)
 mes_num = f"{idx_mes + 1:02d}"
 
-texto_busca_acervo = mes_selecionado           
-texto_abrev_acervo = meses_abrev[idx_mes]      
+texto_busca_acervo = mes_selecionado            
+texto_abrev_acervo = meses_abrev[idx_mes]       
 texto_busca_dep = f"{mes_num}/{ano_selecionado}" 
 
 uploaded_files = st.file_uploader(
