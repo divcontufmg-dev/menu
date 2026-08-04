@@ -125,7 +125,8 @@ def extrair_valor_pdf(pdf_bytes, texto_busca, texto_abrev=None, is_dep=False):
                         break
                 bloco_texto += " " + proxima
                 
-            bloco_texto = re.sub(r'(\.\d{3})\s+(?=\d{3}[.,]\d{2}(?!\d))', r'\1', bloco_texto)
+            bloco_texto = re.sub(r'(\.\d{3})(?=\d)', r'\1 ', bloco_texto)
+            bloco_texto = re.sub(r'(\.)\s+(\d{3})', r'\1\2', bloco_texto)
             matches = [m for m in re.findall(r'[\d\.,]+', bloco_texto) if any(c.isdigit() for c in m)]
             
             for m in reversed(matches):
@@ -155,7 +156,7 @@ class PDF_Report(FPDF):
 # ==========================================
 # INTERFACE DO USUÁRIO
 # ==========================================
-st.title("📚 Conciliador: Acervo Bibliográfico")
+st.title("📚 Conciliador: Acervo Bibliográfico RESERVA")
 
 with st.expander("📘 GUIA DE USO (Clique para abrir)", expanded=False):
     st.markdown("📌 **Orientações de Uso**")
