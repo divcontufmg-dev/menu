@@ -105,7 +105,8 @@ def extrair_valor_pdf(pdf_bytes, texto_busca, texto_abrev=None, is_dep=False):
             elif encontrou_mes and re.match(r'^[\d\s\W]*TOTAL\b', line_clean.upper()):
                 condicao_total = True
         else:
-            if line_clean.upper().startswith(texto_busca.upper()):
+            padrao_dep = rf'^[\W\s]*{re.escape(texto_busca.upper())}'
+            if re.search(padrao_dep, line_clean.upper()):
                 condicao_mes = True
                 
         if condicao_mes or condicao_total:
@@ -121,7 +122,11 @@ def extrair_valor_pdf(pdf_bytes, texto_busca, texto_abrev=None, is_dep=False):
                     if re.match(r'^(Janeiro|Fevereiro|Março|Abril|Maio|Junho|Julho|Agosto|Setembro|Outubro|Novembro|Dezembro|Jan\.?|Fev\.?|Mar\.?|Abr\.?|Mai\.?|Jun\.?|Jul\.?|Ago\.?|Set\.?|Out\.?|Nov\.?|Dez\.?|TOTAL|Pag\.|Página|Pergamum|Sistema|Emissão|Data)', proxima, re.IGNORECASE):
                         break
                 else:
-                    if re.match(r'^(\d{2}/\d{4}|TOTAL|Pag\.|Página|Pergamum|Sistema|Emissão|Data)', proxima, re.IGNORECASE):
+                    # ====================================================
+                    # 2. PROTEGER A QUEBRA DE BLOCO (BREAK)
+                    # Tolera pipes/espaços antes da próxima data para parar a leitura na hora certa
+                    # ====================================================
+                    if re.match(r'^[\W\s]*(\d{2}/\d{4}|TOTAL|Pag\.|Página|Pergamum|Sistema|Emissão|Data)', proxima, re.IGNORECASE):
                         break
                 bloco_texto += " " + proxima
                 
