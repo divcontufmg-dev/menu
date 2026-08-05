@@ -36,13 +36,17 @@ hide_streamlit_style = """
             """
 st.markdown(hide_streamlit_style, unsafe_allow_html=True)
 
-st.page_link("Menu_principal.py", label="⬅️ Voltar ao Menu Inicial")
+try:
+    st.page_link("Menu_principal.py", label="⬅️ Voltar ao Menu Inicial")
+except:
+    pass # Ignora erro caso o arquivo mude de nome
 
 # ==========================================
 # FUNÇÕES E CLASSES (BASTIDORES)
 # ==========================================
 def formatar_real(valor):
     sinal = "-" if valor < -0.001 else ""
+    # Transforma 1234.56 em 1.234,56
     return f"{sinal}{abs(valor):,.2f}".replace(',', '_').replace('.', ',').replace('_', '.')
 
 def limpar_valor_excel(v):
@@ -121,7 +125,7 @@ def extrair_valor_pdf(pdf_bytes, texto_busca, texto_abrev=None, is_dep=False):
             elif encontrou_mes and re.match(r'^[\d\s\W]*TOTAL\b', line_clean.upper()):
                 condicao_total = True
         else:
-            # Blindagem absoluta contra sujeira de layout
+            # Blindagem absoluta contra sujeira de layout (pipes e espaços invisíveis)
             linha_super_limpa = re.sub(r'[^\w/]', '', line_clean.upper())
             busca_limpa = re.sub(r'[^\w/]', '', texto_busca.upper())
             
@@ -148,10 +152,18 @@ def extrair_valor_pdf(pdf_bytes, texto_busca, texto_abrev=None, is_dep=False):
                         break
                 bloco_texto += " " + proxima
                 
-            # Corrige números fundidos por falta de espaço (ex: 4.810209.345,63)
+            # ====================================================
+            # TRATAMENTO CIRÚRGICO DE NÚMEROS (A CASCATA)
+            # ====================================================
+            # 1. Separa números que o PDF colou (ex: 4.810209.345,63 -> 4.810 209.345,63)
             bloco_texto = re.sub(r'(\.\d{3})(?=\d)', r'\1 ', bloco_texto)
-            # Une números separados erroneamente (ex: 209. 345,63)
+            
+            # 2. Une milhares separados erroneamente por espaço após o ponto (ex: 209. 345,63 -> 209.345,63)
             bloco_texto = re.sub(r'(\.)\s+(\d{3})', r'\1\2', bloco_texto)
+            
+            # 3. O SEU REGEX ORIGINAL: Une milhões com espaço acidental (ex: 1.205 936,50 -> 1.205936,50)
+            bloco_texto = re.sub(r'(\.\d{3})\s+(?=\d{3}[.,]\d{2}(?!\d))', r'\1', bloco_texto)
+            # ====================================================
             
             matches = [m for m in re.findall(r'[\d\.,]+', bloco_texto) if any(c.isdigit() for c in m)]
             
