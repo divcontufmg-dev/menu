@@ -4,6 +4,8 @@ import pdfplumber
 import re
 from fpdf import FPDF, XPos, YPos
 import io
+import pytesseract
+from pdf2image import convert_from_bytes
 
 # ==========================================
 # CONFIGURAÇÃO INICIAL E MEMÓRIA
@@ -41,7 +43,6 @@ st.page_link("Menu_principal.py", label="⬅️ Voltar ao Menu Inicial")
 # ==========================================
 def formatar_real(valor):
     sinal = "-" if valor < -0.001 else ""
-    # Transforma 1234.56 em 1.234,56
     return f"{sinal}{abs(valor):,.2f}".replace(',', '_').replace('.', ',').replace('_', '.')
 
 def limpar_valor_excel(v):
@@ -76,13 +77,28 @@ def limpar_valor_pdf(v):
 
 def extrair_valor_pdf(pdf_bytes, texto_busca, texto_abrev=None, is_dep=False):
     texto_completo = ""
+    # 1. Tenta a leitura normal (rápida) para PDFs selecionáveis
     try:
         with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
             for page in pdf.pages:
-                texto_completo += page.extract_text() + "\n"
+                extracted = page.extract_text()
+                if extracted:
+                    texto_completo += extracted + "\n"
     except Exception:
         pass
-    
+        
+    # ====================================================
+    # OCR FALLBACK (Plano B para imagens)
+    # ====================================================
+    if len(texto_completo.strip()) < 50:
+        try:
+            imagens = convert_from_bytes(pdf_bytes)
+            texto_completo = ""
+            for img in imagens:
+                texto_completo += pytesseract.image_to_string(img, lang='por') + "\n"
+        except Exception:
+            pass # Se o Tesseract não estiver configurado, ignora
+
     linhas = texto_completo.split('\n')
     valores_encontrados = []
     encontrou_mes = False
@@ -105,9 +121,7 @@ def extrair_valor_pdf(pdf_bytes, texto_busca, texto_abrev=None, is_dep=False):
             elif encontrou_mes and re.match(r'^[\d\s\W]*TOTAL\b', line_clean.upper()):
                 condicao_total = True
         else:
-            # ====================================================
-            # BLINDAGEM CONTRA CARACTERES INVISÍVEIS E DE LAYOUT
-            # ====================================================
+            # Blindagem absoluta contra sujeira de layout
             linha_super_limpa = re.sub(r'[^\w/]', '', line_clean.upper())
             busca_limpa = re.sub(r'[^\w/]', '', texto_busca.upper())
             
@@ -128,18 +142,15 @@ def extrair_valor_pdf(pdf_bytes, texto_busca, texto_abrev=None, is_dep=False):
                     if re.match(r'^(Janeiro|Fevereiro|Março|Abril|Maio|Junho|Julho|Agosto|Setembro|Outubro|Novembro|Dezembro|Jan\.?|Fev\.?|Mar\.?|Abr\.?|Mai\.?|Jun\.?|Jul\.?|Ago\.?|Set\.?|Out\.?|Nov\.?|Dez\.?|TOTAL|Pag\.|Página|Pergamum|Sistema|Emissão|Data)', proxima, re.IGNORECASE):
                         break
                 else:
-                    # ====================================================
-                    # BLINDAGEM NA QUEBRA DO BLOCO (BREAK)
-                    # ====================================================
+                    # Proteção para interromper a leitura na hora certa
                     proxima_limpa = re.sub(r'[^\w/]', '', proxima.upper())
                     if re.search(r'(\d{2}/\d{4}|TOTAL|PAG|PÁGINA|PERGAMUM|SISTEMA|EMISSÃO|DATA)', proxima_limpa):
                         break
                 bloco_texto += " " + proxima
                 
-            # ====================================================
-            # CORREÇÕES DE NÚMEROS COLADOS/SEPARADOS (EX: 4810 colado)
-            # ====================================================
+            # Corrige números fundidos por falta de espaço (ex: 4.810209.345,63)
             bloco_texto = re.sub(r'(\.\d{3})(?=\d)', r'\1 ', bloco_texto)
+            # Une números separados erroneamente (ex: 209. 345,63)
             bloco_texto = re.sub(r'(\.)\s+(\d{3})', r'\1\2', bloco_texto)
             
             matches = [m for m in re.findall(r'[\d\.,]+', bloco_texto) if any(c.isdigit() for c in m)]
@@ -309,7 +320,6 @@ if st.button("🚀 Iniciar Conciliação", use_container_width=True, type="prima
 # ==========================================
 if st.session_state.get('dados_processados'):
     
-    # === AVISO NO TOPO COM CAIXA DE CONFIRMAÇÃO ===
     if st.session_state.logs:
         st.warning("⚠️ **ATENÇÃO: Existem relatórios (PDF) ausentes identificados!**")
         with st.expander("Ver lista de Relatórios Ausentes", expanded=True):
@@ -317,8 +327,7 @@ if st.session_state.get('dados_processados'):
             
         prosseguir = st.checkbox("✅ Desejo prosseguir com a conciliação mesmo com ficheiros em falta")
         if not prosseguir:
-            st.stop() # Pausa a renderização aqui até que o utilizador marque a caixa
-    # ==============================================
+            st.stop()
 
     st.markdown("---")
     st.subheader("🔍 Resultados da Análise & Revisão")
@@ -331,7 +340,6 @@ if st.session_state.get('dados_processados'):
     pdf_out.add_page()
 
     for ug, info in dados_ug.items():
-        # LÓGICA DE ATUALIZAÇÃO EM TEMPO REAL
         if info['erro_original_acervo']:
             if info['detalhes_acervo']:
                 soma = 0.0
@@ -356,7 +364,6 @@ if st.session_state.get('dados_processados'):
                 key = f"edit_dp_{ug}_total"
                 if key in st.session_state: info['pdf_dep'] = st.session_state[key]
 
-        # Recálculo das diferenças finais
         dif_acervo_final = info['pdf_acervo'] - info['ex_acervo']
         dif_dep_final = info['pdf_dep'] - info['ex_dep']
         
@@ -365,11 +372,9 @@ if st.session_state.get('dados_processados'):
         total_ex_dep += info['ex_dep']
         total_pdf_dep += info['pdf_dep']
 
-        # VERIFICA SE HOUVE EDIÇÃO MANUAL
         editado_acervo = abs(info['pdf_acervo'] - info['original_pdf_acervo']) > 0.01
         editado_dep = abs(info['pdf_dep'] - info['original_pdf_dep']) > 0.01
 
-        # CRIAÇÃO DA INTERFACE DA UG
         mostrar_expander = info['erro_original_acervo'] or info['erro_original_dep'] or info['arquivos_acervo_somados'] > 1 or info['arquivos_dep_somados'] > 1
         
         if mostrar_expander:
@@ -388,14 +393,12 @@ if st.session_state.get('dados_processados'):
                     {"Conta": "Depreciação", "Saldo relatório": info['pdf_dep'], "Saldo SIAFI": info['ex_dep'], "Diferença": dif_dep_final}
                 ])
                 
-                # Formatador para o Dataframe do Streamlit usar . e , corretamente
                 st.dataframe(df_view.style.format({
                     "Saldo relatório": lambda x: f"R$ {formatar_real(x)}", 
                     "Saldo SIAFI": lambda x: f"R$ {formatar_real(x)}", 
                     "Diferença": lambda x: f"R$ {formatar_real(x)}"
                 }), use_container_width=True)
                 
-                # EDIÇÃO CIRÚRGICA
                 if info['erro_original_acervo'] or info['erro_original_dep']:
                     st.markdown("---")
                     st.markdown("**✏️ Correção Direta por Relatório:**")
@@ -420,9 +423,7 @@ if st.session_state.get('dados_processados'):
                         else:
                             st.number_input(f"Valor Total (Relatório Ausente)", value=float(info['pdf_dep']), step=100.0, key=f"edit_dp_{ug}_total")
 
-        # ==========================================
         # ESCRITA NO PDF FINAL
-        # ==========================================
         texto_ug = f"Unidade Gestora: {ug} - {info['nome'][:50]}"
         avisos_soma = []
         if info['arquivos_acervo_somados'] > 1: avisos_soma.append(f"{info['arquivos_acervo_somados']} Acervos")
@@ -436,8 +437,8 @@ if st.session_state.get('dados_processados'):
         pdf_out.set_font("helvetica", 'B', 8)
         pdf_out.set_fill_color(220, 230, 241)
         pdf_out.cell(46, 7, "Conta", 1, fill=True)
-        pdf_out.cell(48, 7, "Saldo relatório", 1, fill=True, align='C') # Nova nomenclatura
-        pdf_out.cell(48, 7, "Saldo SIAFI", 1, fill=True, align='C')      # Nova nomenclatura
+        pdf_out.cell(48, 7, "Saldo relatório", 1, fill=True, align='C') 
+        pdf_out.cell(48, 7, "Saldo SIAFI", 1, fill=True, align='C')      
         pdf_out.cell(48, 7, "Diferença", 1, fill=True, align='C', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
         
         pdf_out.set_font("helvetica", '', 8)
@@ -461,7 +462,6 @@ if st.session_state.get('dados_processados'):
         pdf_out.cell(48, 7, f"R$ {formatar_real(dif_dep_final)}", 1, align='R', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
         pdf_out.set_text_color(0, 0, 0)
         
-        # LOG DE ALERTA NO PDF
         if editado_acervo or editado_dep:
             pdf_out.set_font("helvetica", 'I', 7)
             pdf_out.set_text_color(180, 0, 0) 
@@ -473,7 +473,6 @@ if st.session_state.get('dados_processados'):
         
         pdf_out.ln(5)
 
-    # Exibição do Resumo Geral
     dif_total_acervo = total_pdf_acervo - total_ex_acervo
     dif_total_dep = total_pdf_dep - total_ex_dep
     
