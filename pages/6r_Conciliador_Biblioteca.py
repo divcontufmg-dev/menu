@@ -206,6 +206,10 @@ with st.expander("📘 GUIA DE USO (Clique para abrir)", expanded=False):
        - **Depreciação:** Número da UG com a letra 'd' no final (ex: `153289d.pdf`, `153289d2.pdf`).
     4. O sistema somará tudo. **Poderá corrigir valores divergentes. As edições serão registadas no PDF!**
     """)
+with st.popover("🖼️ Guia de Relatórios"):
+    st.markdown("Veja abaixo o formato esperado dos relatórios:")
+    # Substitua 'nome_da_imagem.png' pelo nome real do arquivo salvo na sua pasta
+    st.image("guia.png", use_container_width=True)
 
 col_mes, col_ano = st.columns(2)
 meses = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"]
