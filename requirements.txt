@@ -1,4 +1,4 @@
-streamlit
+streamlit>=1.36.0
 pandas
 pdfplumber
 fpdf2
@@ -7,3 +7,4 @@ pytesseract
 pdf2image
 pillow
 xlsxwriter
+starlette<0.38.0
