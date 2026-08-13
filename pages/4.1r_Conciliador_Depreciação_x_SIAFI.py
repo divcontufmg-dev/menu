@@ -167,7 +167,7 @@ class PDFRelatorio(FPDF):
 # ==========================================
 # INTERFACE DO USUÁRIO
 # ==========================================
-st.title("📊 Conciliador de Depreciação")
+st.title("📊 Conciliador de Depreciação reserva")
 
 meses_opcoes = ["JAN", "FEV", "MAR", "ABR", "MAI", "JUN", "JUL", "AGO", "SET", "OUT", "NOV", "DEZ"]
 mes_selecionado = st.selectbox("Selecione o Mês de Referência:", meses_opcoes)
