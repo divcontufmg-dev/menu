@@ -45,7 +45,7 @@ st.markdown(hide_streamlit_style, unsafe_allow_html=True)
 st.page_link("Menu_principal.py", label="⬅️ Voltar ao Menu Inicial")
 
 # ==========================================
-# FUNÇÕES DE PROCESSAMENTO (BASTIDORES)
+# FUNÇÕES DE PROCESSAMENTO E AÇÕES (CALLBACKS)
 # ==========================================
 def limpar_valor(v):
     if v is None or pd.isna(v) or str(v).strip() == '': return 0.0
@@ -95,6 +95,15 @@ def formatar_real(valor):
     sinal = "-" if valor < -0.001 else ""
     return f"{sinal}{abs(valor):,.2f}".replace(',', '_').replace('.', ',').replace('_', '.')
 
+# Callbacks para os botões de cópia
+def copiar_valor_siafi(key_input, valor):
+    st.session_state[key_input] = float(valor)
+
+def copiar_todos_siafi(ug, chaves, df_final):
+    for chave in chaves:
+        val_excel = df_final.loc[df_final['Chave_Vinculo'] == chave, 'Saldo_Excel'].sum()
+        st.session_state[f"edit_rmb_{ug}_{int(chave)}"] = float(val_excel)
+
 class PDF_Report(FPDF):
     def header(self):
         self.set_font('helvetica', 'B', 12)
@@ -107,13 +116,13 @@ class PDF_Report(FPDF):
 # ==========================================
 # INTERFACE DO USUÁRIO
 # ==========================================
-st.title("📊 Sistema de Conciliação: RMB x SIAFI")
+st.title("📊 Sistema de Conciliação: RMB x SIAFI reserva")
 
 with st.expander("📘 GUIA DE USO (Clique para abrir)", expanded=False):
     st.markdown("📌 **Orientações de Uso**")
     st.markdown("""
     1. Anexe a **Planilha SIAFI** e todos os **Relatórios PDF (RMB)** correspondentes na área abaixo.
-    2. O sistema apontará divergências. Você pode validar a leitura do PDF ou corrigir valores lidos incorretamente pelo OCR.
+    2. O sistema apontará divergências. Caso o OCR tenha falhado na leitura do PDF mas o valor físico estiver correto, utilize o botão de copiar o valor do SIAFI ou digite manualmente.
     """)
 
 # Área de Upload Unificada
@@ -323,7 +332,7 @@ if st.session_state.get('dados_processados'):
 
     st.markdown("---")
     st.subheader("🔍 Resultados da Conciliação & Revisão")
-    st.info("💡 **Ação do Operador:** Para as contas divergentes, você pode validar que a leitura do PDF está correta marcando a caixa de seleção. Caso o OCR tenha lido um valor errado, deixe desmarcado e digite o valor correto na caixa.")
+    st.info("💡 **Ação do Operador:** Caso a leitura do relatório (OCR) não tenha capturado o valor correto devido à qualidade da imagem, mas você saiba que o valor real do papel está correto e bate com o Excel, clique em '📥 Copiar do SIAFI' ou digite manualmente na caixa.")
 
     pdf_out = PDF_Report()
     pdf_out.add_page()
@@ -334,17 +343,13 @@ if st.session_state.get('dados_processados'):
         original['Diferenca_Original'] = original['Saldo_PDF'] - original['Saldo_Excel']
         chaves_com_erro = original[abs(original['Diferenca_Original']) > 0.05]['Chave_Vinculo'].tolist()
 
-        # Atualiza df_pdf com base nas validações ou edições manuais
+        # Atualiza df_pdf com base nas edições manuais ou cópias efetuadas pelos botões
         for chave in chaves_com_erro:
             key_input = f"edit_rmb_{ug}_{int(chave)}"
-            key_validar = f"validar_rmb_{ug}_{int(chave)}"
-            
             val_original_pdf = info['df_pdf_original'].loc[info['df_pdf_original']['Chave_Vinculo'] == chave, 'Saldo_PDF'].sum()
             
-            # Se o operador validou a leitura, força o valor original lido. Senão, aceita a edição manual.
-            if st.session_state.get(key_validar, False):
-                novo_val = val_original_pdf
-            elif key_input in st.session_state:
+            # Recupera o valor digitado/copiado, caso contrário mantém o lido pelo sistema
+            if key_input in st.session_state:
                 novo_val = st.session_state[key_input]
             else:
                 novo_val = val_original_pdf
@@ -388,19 +393,39 @@ if st.session_state.get('dados_processados'):
                     }), use_container_width=True)
 
                     st.markdown("**✏️ Ação para Divergências:**")
+                    
+                    # Botão GERAL para copiar todos
+                    st.button(
+                        f"📋 Preencher todos os campos abaixo com valores do SIAFI (UG {ug})",
+                        on_click=copiar_todos_siafi,
+                        args=(ug, chaves_com_erro, final),
+                        key=f"btn_copy_all_{ug}"
+                    )
+                    st.write("")
+                    
                     cols = st.columns(3)
                     for idx, chave in enumerate(chaves_com_erro):
-                        val_original_pdf = info['df_pdf_original'].loc[info['df_pdf_original']['Chave_Vinculo'] == chave, 'Saldo_PDF'].sum()
+                        val_excel = final.loc[final['Chave_Vinculo'] == chave, 'Saldo_Excel'].sum()
+                        val_atual = final.loc[final['Chave_Vinculo'] == chave, 'Saldo_PDF'].sum()
+                        key_input = f"edit_rmb_{ug}_{int(chave)}"
                         
                         with cols[idx % 3]:
                             st.markdown(f"**Item {int(chave)}**")
-                            # Checkbox para atestar leitura
-                            validado = st.checkbox("✅ Validar leitura (RMB correto)", key=f"validar_rmb_{ug}_{int(chave)}")
                             
-                            # Se não validou, abre o campo para correção manual do OCR
-                            if not validado:
-                                val_atual = final.loc[final['Chave_Vinculo'] == chave, 'Saldo_PDF'].sum()
-                                st.number_input("Corrigir valor lido (OCR falhou):", value=float(val_atual), step=100.0, key=f"edit_rmb_{ug}_{int(chave)}")
+                            st.number_input(
+                                "Corrigir valor (OCR):", 
+                                value=float(val_atual), 
+                                step=100.0, 
+                                key=key_input
+                            )
+                            # Botão INDIVIDUAL para copiar do SIAFI
+                            st.button(
+                                "📥 Copiar do SIAFI",
+                                on_click=copiar_valor_siafi,
+                                args=(key_input, val_excel),
+                                key=f"btn_copy_single_{ug}_{int(chave)}",
+                                use_container_width=True
+                            )
 
             else: 
                 st.success("✅ Conciliado com sucesso! Nenhuma divergência de valores foi encontrada.")
@@ -437,17 +462,13 @@ if st.session_state.get('dados_processados'):
                     val_original = info['df_pdf_original'].loc[info['df_pdf_original']['Chave_Vinculo'] == chave, 'Saldo_PDF'].sum()
                     
                     editado = False
-                    validado = False
                     
+                    # Verifica se o valor atual da linha difere do que o sistema capturou (OCR) inicialmente
                     if chave in chaves_com_erro:
-                        if st.session_state.get(f"validar_rmb_{ug}_{int(chave)}", False):
-                            validado = True
-                        elif abs(row['Saldo_PDF'] - val_original) > 0.01:
+                        if abs(row['Saldo_PDF'] - val_original) > 0.01:
                             editado = True
 
-                    if validado:
-                        str_saldo_relatorio = formatar_real(row['Saldo_PDF']) + " (OK)"
-                    elif editado:
+                    if editado:
                         str_saldo_relatorio = formatar_real(row['Saldo_PDF']) + " *"
                     else:
                         str_saldo_relatorio = formatar_real(row['Saldo_PDF'])
@@ -461,17 +482,14 @@ if st.session_state.get('dados_processados'):
                     pdf_out.cell(30, 7, formatar_real(row['Diferenca']), 1, align='R', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
                     pdf_out.set_text_color(0, 0, 0)
 
-                    # Notas de rodapé
-                    if validado:
-                        alertas_auditoria.append(f"✓ VALIDAÇÃO: O operador atestou que a leitura do RMB (Item {int(chave)}) está correta. Divergência confirmada.")
-                    elif editado:
-                        alertas_auditoria.append(f"* ALERTA: O valor do Item {int(chave)} foi alterado manualmente. (Lido pelo sistema: R$ {formatar_real(val_original)})")
+                    # Notas de rodapé no PDF alertando a auditoria
+                    if editado:
+                        alertas_auditoria.append(f"* ALERTA: O valor do Item {int(chave)} foi corrigido manualmente (Lido pelo sistema OCR: R$ {formatar_real(val_original)})")
 
                 if alertas_auditoria:
                     pdf_out.set_font("helvetica", 'I', 7)
                     for alerta in alertas_auditoria:
-                        if alerta.startswith("✓"): pdf_out.set_text_color(0, 100, 0) # Verde escuro
-                        else: pdf_out.set_text_color(180, 0, 0) # Vermelho
+                        pdf_out.set_text_color(180, 0, 0) # Vermelho
                         pdf_out.cell(0, 5, alerta, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
                     pdf_out.set_text_color(0, 0, 0)
             else:
