@@ -116,7 +116,7 @@ class PDF_Report(FPDF):
 # ==========================================
 # INTERFACE DO USUÁRIO
 # ==========================================
-st.title("📊 Sistema de Conciliação: RMB x SIAFI")
+st.title("📊 Sistema de Conciliação: RMB x SIAFI reserva")
 
 with st.expander("📘 GUIA DE USO (Clique para abrir)", expanded=False):
     st.markdown("📌 **Orientações de Uso**")
