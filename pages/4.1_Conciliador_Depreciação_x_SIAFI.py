@@ -112,13 +112,22 @@ def processar_pdf(arquivo_obj, idx_mes):
     
     for i, match in enumerate(matches):
         grupo_id = int(match.group(1))
+        
+        # Ignorar o grupo 44 conforme regra de exceção técnica
+        if grupo_id == 44:
+            continue
+            
         start_idx = match.start()
         end_idx = matches[i+1].start() if i + 1 < len(matches) else len(texto_completo)
         bloco_texto = texto_completo[start_idx:end_idx]
         
-        regex_saldo = re.compile(r"\(\*\)\s*SALDO[\s\S]*?ATUAL[\s\S]*?((?:\d{1,3}(?:\.\d{3})*,\d{2}))")
-        match_saldo = regex_saldo.search(bloco_texto)
-        saldo_val = formatar_moeda_pdf(match_saldo.group(1)) if match_saldo else 0.0
+        # Captura o saldo atual com base no saldo inicial do mês seguinte, exceto em dezembro
+        if idx_mes < 11:
+            saldo_val = extrair_valor_mes(bloco_texto, "SALDO INICIAL", idx_mes + 1)
+        else:
+            regex_saldo = re.compile(r"\(\*\)\s*SALDO[\s\S]*?ATUAL[\s\S]*?((?:\d{1,3}(?:\.\d{3})*,\d{2}))")
+            match_saldo = regex_saldo.search(bloco_texto)
+            saldo_val = formatar_moeda_pdf(match_saldo.group(1)) if match_saldo else 0.0
         
         v_dep_mes = extrair_valor_mes(bloco_texto, "DEPRECIAÇÃO MÊS CORRENTE", idx_mes)
         v_entradas = extrair_valor_mes(bloco_texto, "ENTRADAS (TRANSFERÊNCIA)", idx_mes)
@@ -231,7 +240,14 @@ if st.button("🚀 Gerar Relatório de Conciliação", type="primary", use_conta
                             nat_desp = dicionario_matriz.get(conta_raw)
                             if nat_desp:
                                 grupo = extrair_codigo_grupo(nat_desp)
+                                
                                 if grupo is not None:
+                                    # Aplicação da Exceção Técnica Fixa - Ignora Grupo 44
+                                    if grupo == 44:
+                                        msg_excecao = f"Exceção Técnica: Grupo 44 ignorado na Aba '{sheet_name}'."
+                                        if msg_excecao not in logs: logs.append(msg_excecao)
+                                        continue
+
                                     valid_vals = [v for v in row if v is not None and str(v).strip() != ""]
                                     if len(valid_vals) >= 2:
                                         saldo_raw, movim_raw = valid_vals[-1], valid_vals[-2]
@@ -275,7 +291,7 @@ if st.button("🚀 Gerar Relatório de Conciliação", type="primary", use_conta
                         'uid': uid,
                         'd_excel': d_excel,
                         'd_pdf': d_pdf,
-                        'd_pdf_orig': copy.deepcopy(d_pdf), # Memória fotográfica
+                        'd_pdf_orig': copy.deepcopy(d_pdf),
                         'tem_pdf': uid in dados_pdfs_extraidos,
                         'erro_original': erro_original,
                         'grupos_com_erro': grupos_com_erro
@@ -298,11 +314,11 @@ if st.button("🚀 Gerar Relatório de Conciliação", type="primary", use_conta
 if st.session_state.get('dados_processados'):
     
     if st.session_state.logs:
-        st.warning("⚠️ **ATENÇÃO: Existem relatórios (PDF) ausentes identificados!**")
-        with st.expander("Ver lista de relatórios ausentes", expanded=True):
+        st.warning("⚠️ **ATENÇÃO: Existem relatórios (PDF) ausentes ou Exceções Técnicas aplicadas!**")
+        with st.expander("Ver lista de alertas e logs", expanded=True):
             for log in st.session_state.logs: st.write(log)
             
-        prosseguir = st.checkbox("✅ Desejo prosseguir com a conciliação mesmo com ficheiros em falta")
+        prosseguir = st.checkbox("✅ Desejo prosseguir com a conciliação mesmo com estes alertas")
         if not prosseguir:
             st.stop() 
 
