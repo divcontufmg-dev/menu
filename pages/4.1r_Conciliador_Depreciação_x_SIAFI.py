@@ -112,10 +112,6 @@ def processar_pdf(arquivo_obj, idx_mes):
     
     for i, match in enumerate(matches):
         grupo_id = int(match.group(1))
-        
-        # Ignorar o grupo 44 conforme regra de exceção técnica
-        if grupo_id == 44:
-            continue
             
         start_idx = match.start()
         end_idx = matches[i+1].start() if i + 1 < len(matches) else len(texto_completo)
