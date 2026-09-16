@@ -238,12 +238,6 @@ if st.button("🚀 Gerar Relatório de Conciliação", type="primary", use_conta
                                 grupo = extrair_codigo_grupo(nat_desp)
                                 
                                 if grupo is not None:
-                                    # Aplicação da Exceção Técnica Fixa - Ignora Grupo 44
-                                    if grupo == 44:
-                                        msg_excecao = f"Exceção Técnica: Grupo 44 ignorado na Aba '{sheet_name}'."
-                                        if msg_excecao not in logs: logs.append(msg_excecao)
-                                        continue
-
                                     valid_vals = [v for v in row if v is not None and str(v).strip() != ""]
                                     if len(valid_vals) >= 2:
                                         saldo_raw, movim_raw = valid_vals[-1], valid_vals[-2]
@@ -310,11 +304,11 @@ if st.button("🚀 Gerar Relatório de Conciliação", type="primary", use_conta
 if st.session_state.get('dados_processados'):
     
     if st.session_state.logs:
-        st.warning("⚠️ **ATENÇÃO: Existem relatórios (PDF) ausentes ou Exceções Técnicas aplicadas!**")
-        with st.expander("Ver lista de alertas e logs", expanded=True):
+        st.warning("⚠️ **ATENÇÃO: Existem relatórios (PDF) ausentes identificados!**")
+        with st.expander("Ver lista de relatórios ausentes", expanded=True):
             for log in st.session_state.logs: st.write(log)
             
-        prosseguir = st.checkbox("✅ Desejo prosseguir com a conciliação mesmo com estes alertas")
+        prosseguir = st.checkbox("✅ Desejo prosseguir com a conciliação mesmo com ficheiros em falta")
         if not prosseguir:
             st.stop() 
 
