@@ -320,8 +320,8 @@ if st.button("🚀 Iniciar Conciliação", use_container_width=True, type="prima
             info['original_pdf_dep'] = info['pdf_dep']
             
             # Marca internamente se a UG teve divergência na primeira leitura para libertar a edição
-            info['erro_original_acervo'] = abs(info['pdf_acervo'] - info['ex_acervo']) > 0.05
-            info['erro_original_dep'] = abs(info['pdf_dep'] - info['ex_dep']) > 0.05
+            info['erro_original_acervo'] = abs(info['pdf_acervo'] - info['ex_acervo']) > 0.00
+            info['erro_original_dep'] = abs(info['pdf_dep'] - info['ex_dep']) > 0.00
                 
             progresso.progress((i + 1) / total_ugs)
         
@@ -394,7 +394,7 @@ if st.session_state.get('dados_processados'):
         mostrar_expander = info['erro_original_acervo'] or info['erro_original_dep'] or info['arquivos_acervo_somados'] > 1 or info['arquivos_dep_somados'] > 1
         
         if mostrar_expander:
-            tem_erro_atual = abs(dif_acervo_final) > 0.05 or abs(dif_dep_final) > 0.05
+            tem_erro_atual = abs(dif_acervo_final) > 0.00 or abs(dif_dep_final) > 0.00
             
             if tem_erro_atual:
                 titulo = f"⚠️ UG {ug}: Divergências Encontradas"
@@ -466,7 +466,7 @@ if st.session_state.get('dados_processados'):
         pdf_out.cell(46, 7, "Acervo Bibliográfico", 1)
         pdf_out.cell(48, 7, str_pdf_acervo, 1, align='R')
         pdf_out.cell(48, 7, f"R$ {formatar_real(info['ex_acervo'])}", 1, align='R')
-        if abs(dif_acervo_final) > 0.05: pdf_out.set_text_color(200, 0, 0)
+        if abs(dif_acervo_final) > 0.00: pdf_out.set_text_color(200, 0, 0)
         pdf_out.cell(48, 7, f"R$ {formatar_real(dif_acervo_final)}", 1, align='R', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
         pdf_out.set_text_color(0, 0, 0)
         
@@ -474,7 +474,7 @@ if st.session_state.get('dados_processados'):
         pdf_out.cell(46, 7, "Depreciação Acumulada", 1)
         pdf_out.cell(48, 7, str_pdf_dep, 1, align='R')
         pdf_out.cell(48, 7, f"R$ {formatar_real(info['ex_dep'])}", 1, align='R')
-        if abs(dif_dep_final) > 0.05: pdf_out.set_text_color(200, 0, 0)
+        if abs(dif_dep_final) > 0.00: pdf_out.set_text_color(200, 0, 0)
         pdf_out.cell(48, 7, f"R$ {formatar_real(dif_dep_final)}", 1, align='R', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
         pdf_out.set_text_color(0, 0, 0)
         
@@ -494,8 +494,8 @@ if st.session_state.get('dados_processados'):
     
     st.markdown("### Resumo Geral da Conciliação (Atualizado em tempo real)")
     c1, c2, c3 = st.columns(3)
-    c1.metric("Diferença Total (Acervo)", f"R$ {formatar_real(dif_total_acervo)}", delta_color="inverse" if abs(dif_total_acervo) > 0.05 else "normal")
-    c2.metric("Diferença Total (Depreciação)", f"R$ {formatar_real(dif_total_dep)}", delta_color="inverse" if abs(dif_total_dep) > 0.05 else "normal")
+    c1.metric("Diferença Total (Acervo)", f"R$ {formatar_real(dif_total_acervo)}", delta_color="inverse" if abs(dif_total_acervo) > 0.00 else "normal")
+    c2.metric("Diferença Total (Depreciação)", f"R$ {formatar_real(dif_total_dep)}", delta_color="inverse" if abs(dif_total_dep) > 0.00 else "normal")
     
     try:
         pdf_bytes = bytes(pdf_out.output())
