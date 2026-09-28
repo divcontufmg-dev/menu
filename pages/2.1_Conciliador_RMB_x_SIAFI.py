@@ -341,7 +341,7 @@ if st.session_state.get('dados_processados'):
     for ug, info in dados_ug.items():
         original = pd.merge(info['df_pdf_original'], info['df_excel'], on='Chave_Vinculo', how='outer').fillna(0)
         original['Diferenca_Original'] = original['Saldo_PDF'] - original['Saldo_Excel']
-        chaves_com_erro = original[abs(original['Diferenca_Original']) > 0.05]['Chave_Vinculo'].tolist()
+        chaves_com_erro = original[abs(original['Diferenca_Original']) > 0.00]['Chave_Vinculo'].tolist()
 
         # Atualiza df_pdf com base nas edições manuais ou cópias efetuadas pelos botões
         for chave in chaves_com_erro:
@@ -375,10 +375,10 @@ if st.session_state.get('dados_processados'):
             col1, col2, col3 = st.columns(3)
             col1.metric("Total relatório (PDF)", f"R$ {formatar_real(soma_pdf)}")
             col2.metric("Total SIAFI (Excel)", f"R$ {formatar_real(soma_excel)}")
-            col3.metric("Diferença Encontrada", f"R$ {formatar_real(dif_total)}", delta_color="inverse" if abs(dif_total) > 0.05 else "normal")
+            col3.metric("Diferença Encontrada", f"R$ {formatar_real(dif_total)}", delta_color="inverse" if abs(dif_total) > 0.00 else "normal")
             
             if chaves_com_erro:
-                tem_erro_atual = abs(dif_total) > 0.05
+                tem_erro_atual = abs(dif_total) > 0.00
                 titulo_expander = f"⚠️ Contas com Divergência" if tem_erro_atual else "✅ Corrigido Manualmente"
                 
                 with st.expander(titulo_expander, expanded=tem_erro_atual):
@@ -441,7 +441,7 @@ if st.session_state.get('dados_processados'):
             pdf_out.set_fill_color(240, 240, 240)
             pdf_out.cell(0, 10, text=f"Unidade Gestora: {ug}", border=1, new_x=XPos.LMARGIN, new_y=YPos.NEXT, fill=True)
             
-            mask_mostrar = (abs(final['Diferenca']) > 0.05) | (final['Chave_Vinculo'].isin(chaves_com_erro))
+            mask_mostrar = (abs(final['Diferenca']) > 0.00) | (final['Chave_Vinculo'].isin(chaves_com_erro))
             itens_para_mostrar = final[mask_mostrar].copy()
 
             if not itens_para_mostrar.empty:
@@ -478,7 +478,7 @@ if st.session_state.get('dados_processados'):
                     pdf_out.cell(68, 7, str(row['Descricao'])[:40], 1)
                     pdf_out.cell(30, 7, str_saldo_relatorio, 1, align='R')
                     pdf_out.cell(30, 7, formatar_real(row['Saldo_Excel']), 1, align='R')
-                    if abs(row['Diferenca']) > 0.05: pdf_out.set_text_color(200, 0, 0)
+                    if abs(row['Diferenca']) > 0.00: pdf_out.set_text_color(200, 0, 0)
                     pdf_out.cell(30, 7, formatar_real(row['Diferenca']), 1, align='R', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
                     pdf_out.set_text_color(0, 0, 0)
 
@@ -509,7 +509,7 @@ if st.session_state.get('dados_processados'):
             pdf_out.cell(100, 8, "RESUMO DOS TOTAIS", 1, fill=True)
             pdf_out.cell(30, 8, formatar_real(soma_pdf), 1, fill=True, align='R')
             pdf_out.cell(30, 8, formatar_real(soma_excel), 1, fill=True, align='R')
-            if abs(dif_total) > 0.05: pdf_out.set_text_color(200, 0, 0)
+            if abs(dif_total) > 0.00: pdf_out.set_text_color(200, 0, 0)
             pdf_out.cell(30, 8, formatar_real(dif_total), 1, fill=True, align='R', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
             pdf_out.set_text_color(0, 0, 0)
             pdf_out.ln(5)
