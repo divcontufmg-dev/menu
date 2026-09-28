@@ -410,8 +410,8 @@ if st.session_state.get('dados_processados'):
             st.markdown(f"### 🏢 Unidade Gestora: {sheet_name} (ID: {uid})")
             
             col1, col2 = st.columns(2)
-            col1.metric("Diferença Saldo Acumulado", f"R$ {formatar_real(dif_total_saldo)}", delta_color="inverse" if abs(dif_total_saldo) > 0.05 else "normal")
-            col2.metric("Diferença Mês Corrente", f"R$ {formatar_real(dif_total_mov)}", delta_color="inverse" if abs(dif_total_mov) > 0.05 else "normal")
+            col1.metric("Diferença Saldo Acumulado", f"R$ {formatar_real(dif_total_saldo)}", delta_color="inverse" if abs(dif_total_saldo) > 0.00 else "normal")
+            col2.metric("Diferença Mês Corrente", f"R$ {formatar_real(dif_total_mov)}", delta_color="inverse" if abs(dif_total_mov) > 0.00 else "normal")
             
             titulo_expander = "⚠️ Grupos com Divergência" if tem_erro_atual else ("✅ Resolvido" if info['erro_original'] else "✅ Conciliado")
             if not info['tem_pdf']: titulo_expander += " (Relatório Ausente)"
